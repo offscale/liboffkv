@@ -1,0 +1,3 @@
+Source: zkpp
+Version: 0.2.3
+Description: A ZooKeeper client for C++.
