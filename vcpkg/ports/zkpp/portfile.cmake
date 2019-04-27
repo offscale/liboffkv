@@ -1,5 +1,7 @@
 include(vcpkg_common_functions)
 
+set(VCPKG_BUILD_TYPE release) # this string must be somewhere else, not here
+
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO tgockel/zookeeper-cpp
