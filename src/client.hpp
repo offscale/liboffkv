@@ -20,8 +20,8 @@ std::unique_ptr<Client> connect(const std::string& address)
         return std::make_unique<ZKClient>(protocol + "://" + host_port);
     if (protocol == "consul")
         return std::make_unique<ConsulClient>(host_port);
-    if (protocol == "etcd")
-        return std::make_unique<ETCDClient>(host_port);
+//    if (protocol == "etcd")
+//        return std::make_unique<ETCDClient>(host_port);
     else
         throw InvalidAddress{}; 
 }

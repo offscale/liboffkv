@@ -44,13 +44,43 @@ public:
     }
 
 
+    void create(const std::string& key, const std::string& value, const std::string& lease = {})
+    {
+        kv_->set(key, value);
+    }
+
+    bool exists(const std::string& key) const
+    {
+        return kv_->item(key).valid();
+    }
+
     void set(const std::string& key, const std::string& value)
     {
         kv_->set(key, value);
     }
 
-    std::string get(const std::string& key, const std::string& default_value) const
+    void cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
-        return kv_->get(key, default_value);
+        if (version < 0)
+            set(key, value);
+        else if (!version && !exists(key))
+            create(key, value);
+        else
+            kv_->compareSet(key, version, value);
+    }
+
+    std::string get(const std::string& key) const
+    {
+        if (!exists(key))
+            throw 1;
+        return kv_->get(key, {});
+    }
+
+    void erase(const std::string& key, int64_t version = 0)
+    {
+        if (version < 0)
+            kv_->erase(key);
+        else
+            kv_->compareErase(key, version);
     }
 };
