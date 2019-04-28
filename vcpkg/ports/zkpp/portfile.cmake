@@ -10,21 +10,16 @@ vcpkg_from_github(
     HEAD_REF master
 )
 
+file(READ "${CMAKE_CURRENT_LIST_DIR}/CMakeInstall.txt" INSTALLATION_CODE)
+file(APPEND "${SOURCE_PATH}/CMakeLists.txt" "${INSTALLATION_CODE}")
+
 vcpkg_configure_cmake(
     SOURCE_PATH ${SOURCE_PATH}
     PREFER_NINJA
 )
 
-vcpkg_build_cmake(LOGFILE_ROOT install TARGET all ${ARGN})
+vcpkg_install_cmake()
 
 file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/zkpp RENAME copyright)
-
-file(GLOB libraries "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/*.so*")
-file(COPY ${libraries} DESTINATION ${CURRENT_PACKAGES_DIR}/lib/)
-
-file(GLOB zk "${SOURCE_PATH}/src/zk/*.hpp")
-file(GLOB zk_server "${SOURCE_PATH}/src/zk/server/*.hpp")
-file(COPY ${zk} DESTINATION ${CURRENT_PACKAGES_DIR}/include/zk/)
-file(COPY ${zk_server} DESTINATION ${CURRENT_PACKAGES_DIR}/include/zk/server/)
 
 vcpkg_copy_pdbs()

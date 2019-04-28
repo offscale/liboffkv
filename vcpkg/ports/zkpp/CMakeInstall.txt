@@ -1,0 +1,6 @@
+
+install(TARGETS zkpp EXPORT zkpp DESTINATION lib/)
+
+install(FILES ${zkpp_LIBRARY_HEADERS} DESTINATION include/zk/)
+
+install(EXPORT zkpp DESTINATION share/zkpp/ FILE zkppConfig.cmake)
