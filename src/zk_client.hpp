@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zk/client.hpp>
+#include <zk/error.hpp>
 #include <zk/multi.hpp>
 #include <zk/types.hpp>
 
@@ -64,47 +65,65 @@ public:
 
     void create(const std::string& key, const std::string& value, const std::string& lease = {})
     {
-        client_.create(get_path(key), from_string(value));
+        liboffkv_try([&] {
+            client_.create(get_path(key), from_string(value));
+        });
     }
 
     bool exists(const std::string& key) const
     {
-        return !!client_.exists(get_path(key)).get();
+        return liboffkv_try([&] {
+            return !!client_.exists(get_path(key)).get();
+        });
     }
 
     void set(const std::string& key, const std::string& value)
     {
-        auto path = get_path(key);
+        liboffkv_try([&] {
+            auto path = get_path(key);
 
-        if (!exists(key))
-            client_.create(path, from_string(value));
-        else
-            client_.set(path, from_string(value));
+            try {
+                client_.create(path, from_string(value));
+            } catch (zk::entry_exists &) {
+                client_.set(path, from_string(value));
+            }
+        });
     }
 
     void cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
-        if (version < 0)
-            set(key, value);
-        else if (!version && !exists(key))
-            create(key, value);
-        else
-            client_.set(get_path(key), from_string(value), zk::version(version));
+        liboffkv_try([&] {
+            if (version < 0)
+                set(key, value);
+            else if (!version) {
+                try {
+                    create(key, value);
+                } catch (zk::entry_exists&) {
+                    client_.set(get_path(key), from_string(value), zk::version(0));
+                }
+            }
+            else
+                client_.set(get_path(key), from_string(value), zk::version(version));
+        });
     }
 
     std::string get(const std::string& key) const
     {
-        return to_string(client_.get(get_path(key)).get().data());
+        return liboffkv_try([&] {
+            return to_string(client_.get(get_path(key)).get().data());
+        });
     }
 
     void erase(const std::string& key, int64_t version = 0)
     {
-        auto path = get_path(key);
+        liboffkv_try([&] {
+            auto path = get_path(key);
 
-        if (version < 0)
-            client_.erase(path);
-        else
-            client_.erase(path, zk::version(version));
+            if (version < 0)
+                client_.erase(path);
+            else
+                client_.erase(path, zk::version(version));
+        });
     }
 };
 

@@ -5,38 +5,32 @@
 
 class Result {
 private:
-    int64_t error_code_;
     int64_t version_;
 
 public:
-    Result(int64_t error_code, int64_t version)
-        : error_code_(error_code), version_(version)
+    Result(int64_t version)
+        : version_(version)
     {}
 
     int64_t version() const
     {
         return version_;
     }
-
-    int64_t error_code() const
-    {
-        return error_code_;
-    }
 };
 
 
 class CreateResult : public Result {
 public:
-    CreateResult(int64_t error_code = 0)
-        : Result(error_code, 0)
+    CreateResult()
+        : Result(0)
     {}
 };
 
 
 class SetResult : public Result {
 public:
-    SetResult(int64_t error_code, int64_t version)
-        : Result(error_code, version)
+    SetResult(int64_t version)
+        : Result(version)
     {}
 };
 
@@ -46,8 +40,8 @@ private:
     bool exists_;
 
 public:
-    ExistsResult(bool exists, int64_t error_code, int64_t version)
-        : Result(error_code, version), exists_(exists)
+    ExistsResult(bool exists, int64_t version)
+        : Result(version), exists_(exists)
     {}
 
 
@@ -68,8 +62,8 @@ private:
     std::string value_;
 
 public:
-    GetResult(std::string value, int64_t error_code, int64_t version)
-            : Result(error_code, version), value_(value)
+    GetResult(std::string value, int64_t version)
+            : Result(version), value_(value)
     {}
 
 
@@ -82,15 +76,15 @@ public:
 
 class CASResult : public Result {
 public:
-    CASResult(int64_t error_code, int64_t version)
-        : Result(error_code, version)
+    CASResult(int64_t version)
+        : Result(version)
     {}
 };
 
 
 class EraseResult : public Result {
 public:
-    EraseResult(int64_t error_code, int64_t version)
-        : Result(error_code, version)
+    EraseResult(int64_t version)
+        : Result(version)
     {}
 };

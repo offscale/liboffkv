@@ -46,41 +46,52 @@ public:
 
     void create(const std::string& key, const std::string& value, const std::string& lease = {})
     {
-        kv_->set(key, value);
+        liboffkv_try([&] {
+            kv_->set(key, value);
+        });
     }
 
     bool exists(const std::string& key) const
     {
-        return kv_->item(key).valid();
+        return liboffkv_try([&] {
+            return kv_->item(key).valid();
+        });
     }
 
     void set(const std::string& key, const std::string& value)
     {
-        kv_->set(key, value);
+        return liboffkv_try([&] {
+            kv_->set(key, value);
+        });
     }
 
     void cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
-        if (version < 0)
-            set(key, value);
-        else if (!version && !exists(key))
-            create(key, value);
-        else
-            kv_->compareSet(key, version, value);
+        liboffkv_try([&] {
+            if (version < 0)
+                set(key, value);
+            else
+                kv_->compareSet(key, version, value);
+        });
     }
 
     std::string get(const std::string& key) const
     {
-        if (!exists(key))
-            throw 1;
-        return kv_->get(key, {});
+        return liboffkv_try([&] {
+            auto result = kv_->get(key, {});
+            if (result == std::string{})
+                throw NoEntry{};
+            return result;
+        });
     }
 
     void erase(const std::string& key, int64_t version = 0)
     {
+        return liboffkv_try([&] {
         if (version < 0)
             kv_->erase(key);
         else
             kv_->compareErase(key, version);
+        });
     }
 };
