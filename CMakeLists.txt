@@ -8,9 +8,12 @@ configure_file(lib/version.h.in version.h @ONLY)
 
 find_package(ppconsul REQUIRED)
 find_package(zkpp REQUIRED)
+find_package (Threads REQUIRED)
+link_libraries(${CMAKE_THREAD_LIBS_INIT})
 
 add_library(liboffkv INTERFACE)
-target_link_directories(liboffkv INTERFACE src)
+target_include_directories(liboffkv INTERFACE src)
+target_include_directories(liboffkv INTERFACE stdexperimental)
 target_link_libraries(liboffkv INTERFACE ppconsul)
 target_link_libraries(liboffkv INTERFACE zkpp)
 
