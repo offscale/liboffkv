@@ -2,7 +2,7 @@
 
 
 #include "client.hpp"
-#include "util/time_machine.hpp"
+#include "time_machine.hpp"
 
 void test_time_machine();
 
@@ -22,10 +22,22 @@ void test_time_machine() {
     timeMachine.then<std::string>(timeMachine.then<int, std::string>(a.get_future(), [](auto &&f) {
         return "Ready: " + std::to_string(f.get());
     }), [](auto&& f) {
-        std::cout << f.get();
+        std::cout << f.get() << std::endl;
+    });
+
+    std::promise<int> b;
+    std::future<int> future_b = timeMachine.then<int, int>(b.get_future(), [](auto &&f) -> int {
+        throw std::runtime_error("My error!");
     });
 
     a.set_value(10);
+    b.set_value(5);
+
+    try {
+        future_b.get();
+    } catch (const std::runtime_error& err) {
+        std::cout << err.what() << std::endl;
+    }
 }
 
 int main() {

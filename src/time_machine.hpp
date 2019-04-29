@@ -1,5 +1,7 @@
 #pragma once
 
+#include <exception>
+#include <memory>
 #include <condition_variable>
 #include <mutex>
 #include <utility>
@@ -106,9 +108,19 @@ namespace time_machine {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
                     [future, promise, &func]() {
-                        promise->set_value(func(std::move(*future)));
-                        delete promise;
-                        delete future;
+                        try {
+                            try {
+                                ElemTo to = func(std::move(*future));
+                                promise->set_value(std::move(to));
+                            } catch (...) {
+                                promise->set_exception(std::current_exception());
+                            }
+                            delete promise;
+                            delete future;
+                        } catch (...) {
+                            delete promise;
+                            delete future;
+                        }
                     }
             ));
 
@@ -126,10 +138,19 @@ namespace time_machine {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
                     [future, promise, &func]() {
-                        func(std::move(*future));
-                        promise->set_value();
-                        delete promise;
-                        delete future;
+                        try {
+                            try {
+                                func(std::move(*future));
+                                promise->set_value();
+                            } catch (...) {
+                                promise->set_exception(std::current_exception());
+                            }
+                            delete promise;
+                            delete future;
+                        } catch (...) {
+                            delete promise;
+                            delete future;
+                        }
                     }
             ));
 
@@ -148,12 +169,12 @@ namespace time_machine {
         void runThread() {
             std::thread([this]() {
                 std::pair<std::function<bool(const std::chrono::milliseconds &)>, std::function<void()>> item;
+                state_.fetch_add(1);
                 while (queue_.get(item)) {
-                    state_.fetch_add(1);
                     while (!item.first(std::chrono::milliseconds(200))) {}
                     item.second();
-                    state_.fetch_sub(1);
                 }
+                state_.fetch_sub(1);
             }).detach();
         }
 
