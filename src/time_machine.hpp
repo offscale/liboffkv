@@ -101,25 +101,28 @@ namespace time_machine {
         Future<ElemTo> then(Future<ElemFrom> &&old_future, std::function<ElemTo(Future<ElemFrom> &&)> func) {
             Promise<ElemTo> *promise = new Promise<ElemTo>();
             Future<ElemFrom> *future = new Future<ElemFrom>(std::move(old_future));
+            std::function<ElemTo(Future<ElemFrom> &&)>* func_ptr = new std::function<ElemTo(Future<ElemFrom> &&)>(std::move(func));
             Future<ElemTo> new_future = promise->get_future();
 
             queue_.put(std::make_pair(
                     [future](const std::chrono::milliseconds &timeout_duration) {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
-                    [future, promise, &func]() {
+                    [future, promise, func_ptr]() {
                         try {
                             try {
-                                ElemTo to = func(std::move(*future));
+                                ElemTo to = (*func_ptr)(std::move(*future));
                                 promise->set_value(std::move(to));
                             } catch (...) {
                                 promise->set_exception(std::current_exception());
                             }
                             delete promise;
                             delete future;
+                            delete func_ptr;
                         } catch (...) {
                             delete promise;
                             delete future;
+                            delete func_ptr;
                         }
                     }
             ));
@@ -131,25 +134,28 @@ namespace time_machine {
         Future<void> then(Future<ElemFrom> &&old_future, std::function<void(Future<ElemFrom> &&)> func) {
             Promise<void> *promise = new Promise<void>();
             Future<ElemFrom> *future = new Future<ElemFrom>(std::move(old_future));
+            std::function<void(Future<ElemFrom> &&)>* func_ptr = new std::function<void(Future<ElemFrom> &&)>(std::move(func));
             Future<void> new_future = promise->get_future();
 
             queue_.put(std::make_pair(
                     [future](const std::chrono::milliseconds &timeout_duration) {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
-                    [future, promise, &func]() {
+                    [future, promise, func_ptr]() {
                         try {
                             try {
-                                func(std::move(*future));
+                                (*func_ptr)(std::move(*future));
                                 promise->set_value();
                             } catch (...) {
                                 promise->set_exception(std::current_exception());
                             }
                             delete promise;
                             delete future;
+                            delete func_ptr;
                         } catch (...) {
                             delete promise;
                             delete future;
+                            delete func_ptr;
                         }
                     }
             ));
