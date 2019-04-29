@@ -19,7 +19,7 @@ void test_time_machine() {
     time_machine::TimeMachine<std::promise, std::future> timeMachine;
 
     std::promise<int> a;
-    timeMachine.then<std::string, void>(timeMachine.then<int, std::string>(a.get_future(), [](auto &&f) {
+    timeMachine.then<std::string>(timeMachine.then<int, std::string>(a.get_future(), [](auto &&f) {
         return "Ready: " + std::to_string(f.get());
     }), [](auto&& f) {
         std::cout << f.get();

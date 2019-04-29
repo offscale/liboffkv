@@ -4,6 +4,7 @@
 #include <mutex>
 #include <utility>
 #include <deque>
+#include <atomic>
 
 
 namespace time_machine {
@@ -58,7 +59,6 @@ namespace time_machine {
             consumer_cv_.notify_all();
         }
 
-    private:
         bool isEmpty() const {
             return items_.empty();
         }
@@ -93,11 +93,12 @@ namespace time_machine {
         }
 
 
+        // TODO: exceptions
+
         template<class ElemFrom, class ElemTo>
         Future<ElemTo> then(Future<ElemFrom> &&old_future, std::function<ElemTo(Future<ElemFrom> &&)> func) {
             Promise<ElemTo> *promise = new Promise<ElemTo>();
             Future<ElemFrom> *future = new Future<ElemFrom>(std::move(old_future));
-            future->wait_for(std::chrono::milliseconds(10));
             Future<ElemTo> new_future = promise->get_future();
 
             queue_.put(std::make_pair(
@@ -115,10 +116,9 @@ namespace time_machine {
         }
 
         template<class ElemFrom>
-        Future<void> then<ElemFrom, void>(Future<ElemFrom> &&old_future, std::function<void(Future<ElemFrom> &&)> func) {
+        Future<void> then(Future<ElemFrom> &&old_future, std::function<void(Future<ElemFrom> &&)> func) {
             Promise<void> *promise = new Promise<void>();
             Future<ElemFrom> *future = new Future<ElemFrom>(std::move(old_future));
-            future->wait_for(std::chrono::milliseconds(10));
             Future<void> new_future = promise->get_future();
 
             queue_.put(std::make_pair(
@@ -126,6 +126,7 @@ namespace time_machine {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
                     [future, promise, &func]() {
+                        func(std::move(*future));
                         promise->set_value();
                         delete promise;
                         delete future;
@@ -137,6 +138,9 @@ namespace time_machine {
 
         ~TimeMachine() {
             queue_.close();
+            while (!queue_.isEmpty())
+                std::this_thread::yield();
+            while (state_.load());
         }
 
 
@@ -145,13 +149,16 @@ namespace time_machine {
             std::thread([this]() {
                 std::pair<std::function<bool(const std::chrono::milliseconds &)>, std::function<void()>> item;
                 while (queue_.get(item)) {
+                    state_.fetch_add(1);
                     while (!item.first(std::chrono::milliseconds(200))) {}
                     item.second();
+                    state_.fetch_sub(1);
                 }
             }).detach();
         }
 
     private:
         BlockingQueue<std::pair<std::function<bool(const std::chrono::milliseconds &)>, std::function<void()>>> queue_;
+        std::atomic<long long> state_{0};
     };
 }
