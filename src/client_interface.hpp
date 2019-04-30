@@ -1,5 +1,7 @@
 #pragma once
 
+#include <future>
+
 
 #include "operation.hpp"
 #include "result.hpp"
@@ -7,9 +9,16 @@
 
 
 
+template <typename TimeMachine>
 class Client {
+protected:
+    std::shared_ptr<TimeMachine> time_machine_;
+
 public:
-    Client(const std::string&);
+    Client(const std::string&, std::shared_ptr<TimeMachine> time_machine = nullptr)
+        : time_machine_(time_machine == nullptr ? std::make_shared<TimeMachine>() : time_machine)
+    {}
+
     Client() = default;
 
     virtual
@@ -17,22 +26,25 @@ public:
 
 
     virtual
-    void create(const std::string& key, const std::string& value, const std::string& lease) = 0;
+    std::future<void> create(const std::string& key, const std::string& value, bool lease) = 0;
 
     virtual
-    bool exists(const std::string& key/*, Watch watch = nullptr*/) const = 0;
+    std::future<ExistsResult> exists(const std::string& key) const = 0;
 
     virtual
-    void set(const std::string& key, const std::string& value) = 0;
+    std::future<SetResult> set(const std::string& key, const std::string& value) = 0;
 
     virtual
-    void cas(const std::string& key, const std::string& value, int64_t version) = 0;
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version) = 0;
 
     virtual
-    std::string get(const std::string& key/*, Watch watch = nullptr*/) const = 0;
+    std::future<GetResult> get(const std::string& key) const = 0;
 
     virtual
-    void erase(const std::string& key, int64_t version) = 0;
+    std::future<void> erase(const std::string& key, int64_t version) = 0;
+
+//    virtual
+//    std::future<WatchResult> watch(const std::string& key) = 0;
 
 //    virtual
 //    void transaction(const std::string& key, const std::vector<Operation>& ops) = 0;

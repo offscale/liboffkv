@@ -7,10 +7,13 @@
 
 
 #include "client_interface.hpp"
+#include "time_machine.hpp"
+#include "util.hpp"
 
 
 
-class ZKClient : public Client {
+template <typename TimeMachine = time_machine::TimeMachine<>>
+class ZKClient : public Client<TimeMachine> {
 private:
     using buffer = zk::buffer;
     const static std::string KV_STORAGE_ZNODE;
@@ -37,8 +40,8 @@ private:
 
 
 public:
-    ZKClient(const std::string& address)
-        : client_(zk::client::connect(address).get())
+    ZKClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine = nullptr)
+        : Client<TimeMachine>(address, time_machine), client_(zk::client::connect(address).get())
     {
         client_.create(KV_STORAGE_ZNODE, buffer());
     }
@@ -58,73 +61,96 @@ public:
     ZKClient& operator=(ZKClient&& another)
     {
         client_ = std::move(another.client_);
+        this->time_machine_ = std::move(another.time_machine_);
 
         return *this;
     }
 
 
-    void create(const std::string& key, const std::string& value, const std::string& lease = {})
+    std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
-        liboffkv_try([&] {
-            client_.create(get_path(key), from_string(value));
+        return liboffkv_try([this, &key, &value, lease] {
+            return this->time_machine_->then(
+                client_.create(get_path(key), from_string(value),
+                               lease ? zk::create_mode::normal
+                                     : zk::create_mode::ephemeral), ignore);
         });
     }
 
-    bool exists(const std::string& key) const
+    std::future<ExistsResult> exists(const std::string& key) const
     {
-        return liboffkv_try([&] {
-            return !!client_.exists(get_path(key)).get();
+        return liboffkv_try([this, &key] {
+            return this->time_machine_->then(client_.exists(get_path(key)), [](auto&& result) -> ExistsResult {
+                auto unwrapped = result.get();
+                auto stat = unwrapped.stat();
+
+                return {stat.has_value() ? static_cast<int64_t>(stat.value().data_version.value) : -1, !!unwrapped};
+            });
         });
     }
 
-    void set(const std::string& key, const std::string& value)
+    std::future<SetResult> set(const std::string& key, const std::string& value)
     {
-        liboffkv_try([&] {
+        return liboffkv_try([this, &key, &value] {
             auto path = get_path(key);
 
             try {
-                client_.create(path, from_string(value));
-            } catch (zk::entry_exists &) {
-                client_.set(path, from_string(value));
+                return this->time_machine_->then(client_.create(path, from_string(value)), [](auto&&) -> SetResult {
+                    return {0};
+                });
+            } catch (zk::entry_exists&) {
+                return this->time_machine_->then(client_.set(path, from_string(value)), [](auto&& result) -> SetResult {
+                    return {result.get().stat().data_version.value};
+                });
             }
         });
     }
 
-    void cas(const std::string& key, const std::string& value, int64_t version = 0)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
-        liboffkv_try([&] {
+        return liboffkv_try([this, &key, &value, version] {
             if (version < 0)
-                set(key, value);
-            else if (!version) {
+                return this->time_machine_->then(set(key, value), [](auto&& set_result) -> CASResult {
+                    return {set_result.get().version, true};
+                });
+            if (!version) {
                 try {
-                    create(key, value);
+                    return this->time_machine_->then(create(key, value), [](auto&&) -> CASResult {
+                            return {0, true};
+                    });
                 } catch (zk::entry_exists&) {
-                    client_.set(get_path(key), from_string(value), zk::version(0));
+
                 }
             }
-            else
-                client_.set(get_path(key), from_string(value), zk::version(version));
+            return this->time_machine_->then(
+                client_.set(get_path(key), from_string(value), zk::version(version)),
+                [version](auto&& result) -> CASResult {
+                    auto new_version = static_cast<int64_t>(result.get().stat().data_version.value);
+                    return {new_version, version == new_version};
+                });
         });
     }
 
-    std::string get(const std::string& key) const
+    std::future<GetResult> get(const std::string& key) const
     {
-        return liboffkv_try([&] {
-            return to_string(client_.get(get_path(key)).get().data());
+        return liboffkv_try([this, &key] {
+            return this->time_machine_->then(client_.get(get_path(key)), [](auto&& result) -> GetResult {
+                return {result.get().stat().data_version.value, to_string(result.get().data())};
+            });
         });
     }
 
-    void erase(const std::string& key, int64_t version = 0)
+    std::future<void> erase(const std::string& key, int64_t version = 0)
     {
-        liboffkv_try([&] {
+        return liboffkv_try([this, &key, version] {
             auto path = get_path(key);
 
             if (version < 0)
-                client_.erase(path);
-            else
-                client_.erase(path, zk::version(version));
+                return this->time_machine_->then(client_.erase(path), ignore);
+            return this->time_machine_->then(client_.erase(path, zk::version(version)), ignore);
         });
     }
 };
 
-const std::string ZKClient::KV_STORAGE_ZNODE = "/__kv";
+template <typename TimeMachine>
+const std::string ZKClient<TimeMachine>::KV_STORAGE_ZNODE = "/__kv";

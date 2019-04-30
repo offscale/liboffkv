@@ -3,88 +3,47 @@
 #include <string>
 
 
-class Result {
-private:
-    int64_t version_;
-
-public:
-    Result(int64_t version)
-        : version_(version)
-    {}
-
-    int64_t version() const
-    {
-        return version_;
-    }
+struct Result {
+    int64_t version = 0;
 };
 
 
-class CreateResult : public Result {
-public:
-    CreateResult()
-        : Result(0)
-    {}
-};
+struct CreateResult : Result {};
 
 
-class SetResult : public Result {
-public:
-    SetResult(int64_t version)
-        : Result(version)
-    {}
-};
+struct SetResult : Result {};
 
 
-class ExistsResult : public Result {
-private:
-    bool exists_;
-
-public:
-    ExistsResult(bool exists, int64_t version)
-        : Result(version), exists_(exists)
-    {}
-
+struct ExistsResult : Result {
+    bool exists;
 
     explicit operator bool() const
     {
-        return exists_;
+        return exists;
     }
 
     bool operator!() const
     {
-        return !exists_;
+        return !exists;
     }
 };
 
 
-class GetResult : public Result {
-private:
-    std::string value_;
-
-public:
-    GetResult(std::string value, int64_t version)
-            : Result(version), value_(value)
-    {}
+struct GetResult : Result {
+    std::string value;
+};
 
 
-    std::string value() const
+struct CASResult : Result {
+    bool success;
+
+    explicit operator bool() const
     {
-        return value_;
+        return success;
     }
-};
 
-
-class CASResult : public Result {
-public:
-    CASResult(int64_t version)
-        : Result(version)
-    {}
-};
-
-
-class EraseResult : public Result {
-public:
-    EraseResult(int64_t version)
-        : Result(version)
-    {}
+    bool operator!() const
+    {
+        return !success;
+    }
 };

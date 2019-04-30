@@ -4,14 +4,16 @@
 #include "client.hpp"
 #include "time_machine.hpp"
 
+
 void test_time_machine();
 
-void test_client(std::unique_ptr<Client> &&client) {
-    client->set("key", "value");
-    client->cas("key", "value1", 15);
-    std::cout << client->get("key") << std::endl;
-    client->cas("key", "value1", 5);
-    std::cout << client->get("key") << std::endl;
+template <typename TimeMachine>
+void test_client(std::unique_ptr<Client<TimeMachine>> &&client, std::shared_ptr<TimeMachine> tm) {
+    auto version = client->set("key", "value").get().version;
+    tm->then(client->cas("key", "value1", 111), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
+    tm->then(client->get("key"), [](auto&& res) {std::cout << res.get().value << "\n";});
+    tm->then(client->cas("key", "value1", version), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
+    tm->then(client->get("key"), [](auto&& res) {std::cout << res.get().value << "\n";});
 }
 
 
@@ -19,14 +21,14 @@ void test_time_machine() {
     time_machine::TimeMachine<std::promise, std::future> timeMachine;
 
     std::promise<int> a;
-    timeMachine.then<std::string>(timeMachine.then<int, std::string>(a.get_future(), [](auto &&f) {
+    timeMachine.then(timeMachine.then(a.get_future(), [](auto &&f) {
         return "Ready: " + std::to_string(f.get());
     }), [](auto&& f) {
         std::cout << f.get() << std::endl;
     });
 
     std::promise<int> b;
-    std::future<int> future_b = timeMachine.then<int, int>(b.get_future(), [](auto &&f) -> int {
+    std::future<int> future_b = timeMachine.then(b.get_future(), [](auto &&f) -> int {
         throw std::runtime_error("My error!");
     });
 
@@ -41,8 +43,9 @@ void test_time_machine() {
 }
 
 int main() {
+    auto tm = std::make_shared<time_machine::TimeMachine<>>();
 //    test_client(connect("consul://127.0.0.1:8500"));
-//    test_client(connect("zk://127.0.0.1:2181"));
+    test_client(connect("zk://127.0.0.1:2181", tm), tm);
 
     test_time_machine();
 }
