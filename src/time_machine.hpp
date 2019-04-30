@@ -54,7 +54,7 @@ namespace time_machine {
             return true;
         }
 
-        bool get(std::vector<T>& out_items, const size_t max_count, bool require_at_least_one) {
+        bool get(std::vector<T> &out_items, const size_t max_count, bool require_at_least_one) {
             if (!max_count)
                 return true;
 
@@ -102,7 +102,9 @@ namespace time_machine {
             template<class> class Future>
     class TimeMachine {
     public:
-        explicit TimeMachine(size_t number_of_threads = 1) {
+        explicit TimeMachine(size_t number_of_threads = 1,
+                size_t objects_per_thread=10, unsigned long long wait_for_object_ms=20)
+                : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms){
             for (int i = 0; i < number_of_threads; ++i) {
                 runThread();
             }
@@ -111,12 +113,17 @@ namespace time_machine {
         TimeMachine(const TimeMachine<Promise, Future> &) = delete;
 
         TimeMachine(TimeMachine<Promise, Future> &&machine)
-                : queue_(std::move(machine.queue_)) {}
+                : queue_(std::move(machine.queue_)), state_(std::move(machine.state_)),
+                  objects_per_thread_(machine.objects_per_thread_),
+                  wait_for_object_ms_(machine.wait_for_object_ms_) {}
 
         TimeMachine &operator=(const TimeMachine<Promise, Future> &) = delete;
 
         TimeMachine &operator=(TimeMachine<Promise, Future> &&machine) {
             queue_ = std::move(machine.queue_);
+            state_ = std::move(machine.state_);
+            objects_per_thread_ = machine.objects_per_thread_;
+            wait_for_object_ms_ = machine.wait_for_object_ms_;
         }
 
 
@@ -124,7 +131,8 @@ namespace time_machine {
         Future<ElemTo> then(Future<ElemFrom> &&old_future, std::function<ElemTo(Future<ElemFrom> &&)> func) {
             Promise<ElemTo> *promise = new Promise<ElemTo>();
             Future<ElemFrom> *future = new Future<ElemFrom>(std::move(old_future));
-            std::function<ElemTo(Future<ElemFrom> &&)>* func_ptr = new std::function<ElemTo(Future<ElemFrom> &&)>(std::move(func));
+            std::function<ElemTo(Future<ElemFrom> &&)> *func_ptr = new std::function<ElemTo(Future<ElemFrom> &&)>(
+                    std::move(func));
             Future<ElemTo> new_future = promise->get_future();
 
             queue_->put(std::make_pair(
@@ -157,7 +165,8 @@ namespace time_machine {
         Future<void> then(Future<ElemFrom> &&old_future, std::function<void(Future<ElemFrom> &&)> func) {
             Promise<void> *promise = new Promise<void>();
             Future<ElemFrom> *future = new Future<ElemFrom>(std::move(old_future));
-            std::function<void(Future<ElemFrom> &&)>* func_ptr = new std::function<void(Future<ElemFrom> &&)>(std::move(func));
+            std::function<void(Future<ElemFrom> &&)> *func_ptr = new std::function<void(Future<ElemFrom> &&)>(
+                    std::move(func));
             Future<void> new_future = promise->get_future();
 
             queue_->put(std::make_pair(
@@ -212,7 +221,7 @@ namespace time_machine {
 
         void processObjects(std::vector<QueueData> &picked) const {
             for (auto it = picked.begin(); it < picked.end(); ++it) {
-                if (it->first(std::chrono::milliseconds(wait_for_one_object_ms_))) {
+                if (it->first(std::chrono::milliseconds(wait_for_object_ms_))) {
                     it->second();
                     picked.erase(it);
                 }
@@ -222,7 +231,7 @@ namespace time_machine {
     private:
         std::unique_ptr<BlockingQueue<QueueData>> queue_ = std::make_unique<BlockingQueue<QueueData>>();
         std::unique_ptr<std::atomic<long long>> state_ = std::make_unique<std::atomic<long long>>(0);
-        const size_t objects_per_thread_ = 10;
-        const size_t wait_for_one_object_ms_ = 200;
+        size_t objects_per_thread_;
+        unsigned long long wait_for_object_ms_;
     };
 }
