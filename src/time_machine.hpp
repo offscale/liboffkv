@@ -112,7 +112,7 @@ template<template<class> class Promise = std::promise,
 class TimeMachine {
 public:
     explicit TimeMachine(size_t number_of_threads = 1,
-                         size_t objects_per_thread = 10, unsigned long long wait_for_object_ms = 20)
+                         size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
         : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
     {
         for (size_t i = 0; i < number_of_threads; ++i)
@@ -141,8 +141,7 @@ public:
 
 
     template<typename T, class Function>
-    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func)
-    {
+    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func) {
         auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
         auto new_future = promise->get_future();
@@ -152,7 +151,6 @@ public:
                 return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
             },
             [future_ptr, promise = std::move(promise), func = std::forward<Function>(func)]() {
-                try {
                     try {
                         if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&)>>) {
                             func(std::move(*future_ptr));
@@ -164,12 +162,8 @@ public:
                     } catch (...) {
                         promise->set_exception(std::current_exception());
                     }
-                } catch (...) {
-                }
             }
         ));
-
-        future_ptr.reset();
 
         return new_future;
     }
@@ -180,7 +174,8 @@ public:
         queue_->close();
         while (!queue_->isEmpty())
             std::this_thread::yield();
-        while (state_->load());
+        while (state_->load())
+            std::this_thread::yield();
     }
 
 
