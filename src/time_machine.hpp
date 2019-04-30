@@ -54,6 +54,31 @@ namespace time_machine {
             return true;
         }
 
+        bool get(std::vector<T>& out_items, const size_t max_count, bool require_at_least_one) {
+            if (!max_count)
+                return true;
+
+            std::unique_lock<std::mutex> lock(lock_);
+
+            if (require_at_least_one) {
+                while (!closed_ && isEmpty()) {
+                    consumer_cv_.wait(lock);
+                }
+
+                if (isEmpty()) {
+                    return false;
+                }
+            }
+
+            size_t count = std::min(max_count, items_.size());
+            for (int i = 0; i < count; ++i) {
+                out_items.push_back(std::move(items_.front()));
+                items_.pop_front();
+            }
+
+            return true;
+        }
+
         void close() {
             std::unique_lock<std::mutex> lock(lock_);
 
@@ -73,8 +98,8 @@ namespace time_machine {
     };
 
 
-    template<template<class Elem> class Promise,
-            template<class Elem> class Future>
+    template<template<class> class Promise,
+            template<class> class Future>
     class TimeMachine {
     public:
         explicit TimeMachine(size_t number_of_threads = 1) {
@@ -95,8 +120,6 @@ namespace time_machine {
         }
 
 
-        // TODO: exceptions
-
         template<class ElemFrom, class ElemTo>
         Future<ElemTo> then(Future<ElemFrom> &&old_future, std::function<ElemTo(Future<ElemFrom> &&)> func) {
             Promise<ElemTo> *promise = new Promise<ElemTo>();
@@ -104,7 +127,7 @@ namespace time_machine {
             std::function<ElemTo(Future<ElemFrom> &&)>* func_ptr = new std::function<ElemTo(Future<ElemFrom> &&)>(std::move(func));
             Future<ElemTo> new_future = promise->get_future();
 
-            queue_.put(std::make_pair(
+            queue_->put(std::make_pair(
                     [future](const std::chrono::milliseconds &timeout_duration) {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
@@ -137,7 +160,7 @@ namespace time_machine {
             std::function<void(Future<ElemFrom> &&)>* func_ptr = new std::function<void(Future<ElemFrom> &&)>(std::move(func));
             Future<void> new_future = promise->get_future();
 
-            queue_.put(std::make_pair(
+            queue_->put(std::make_pair(
                     [future](const std::chrono::milliseconds &timeout_duration) {
                         return future->wait_for(timeout_duration) == std::future_status::ready;
                     },
@@ -164,28 +187,42 @@ namespace time_machine {
         }
 
         ~TimeMachine() {
-            queue_.close();
-            while (!queue_.isEmpty())
+            queue_->close();
+            while (!queue_->isEmpty())
                 std::this_thread::yield();
-            while (state_.load());
+            while (state_->load());
         }
 
 
     private:
+        using QueueData = std::pair<std::function<bool(const std::chrono::milliseconds &)>, std::function<void()>>;
+
         void runThread() {
             std::thread([this]() {
-                std::pair<std::function<bool(const std::chrono::milliseconds &)>, std::function<void()>> item;
-                state_.fetch_add(1);
-                while (queue_.get(item)) {
-                    while (!item.first(std::chrono::milliseconds(200))) {}
-                    item.second();
+                std::vector<QueueData> picked;
+                state_->fetch_add(1);
+
+                while (queue_->get(picked, objects_per_thread_ - picked.size(), picked.empty())) {
+                    processObjects(picked);
                 }
-                state_.fetch_sub(1);
+
+                state_->fetch_sub(1);
             }).detach();
         }
 
+        void processObjects(std::vector<QueueData> &picked) const {
+            for (auto it = picked.begin(); it < picked.end(); ++it) {
+                if (it->first(std::chrono::milliseconds(wait_for_one_object_ms_))) {
+                    it->second();
+                    picked.erase(it);
+                }
+            }
+        }
+
     private:
-        BlockingQueue<std::pair<std::function<bool(const std::chrono::milliseconds &)>, std::function<void()>>> queue_;
-        std::atomic<long long> state_{0};
+        std::unique_ptr<BlockingQueue<QueueData>> queue_ = std::make_unique<BlockingQueue<QueueData>>();
+        std::unique_ptr<std::atomic<long long>> state_ = std::make_unique<std::atomic<long long>>(0);
+        const size_t objects_per_thread_ = 10;
+        const size_t wait_for_one_object_ms_ = 200;
     };
 }
