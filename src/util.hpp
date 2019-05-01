@@ -18,6 +18,3 @@ std::pair<std::string, std::string> get_protocol_address(const std::string& addr
 
     return {address.substr(0, pos), address.substr(pos + DELIM.size())};
 }
-
-
-auto ignore = [](auto&&...) {};

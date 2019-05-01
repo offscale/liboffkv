@@ -1,10 +1,12 @@
 #pragma once
 
 #include <exception>
+#include <future>
 
 #include <ppconsul/error.h>
 #include <ppconsul/kv.h>
 #include <zk/error.hpp>
+
 
 
 class InvalidAddress : public std::exception {
@@ -53,3 +55,18 @@ auto liboffkv_try(Func&& f)
         throw;
     }
 }
+
+
+// TODO: segfault if uncomment
+auto call_get = [](auto&& res) {
+//    return liboffkv_try([&res] {
+        return res.get();
+//    });
+};
+
+
+auto call_get_then_ignore = [](auto&& res) {
+//    liboffkv_try([&res] {
+        res.get();
+//    });
+};

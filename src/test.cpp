@@ -8,12 +8,21 @@
 void test_time_machine();
 
 template <typename TimeMachine>
-void test_client(std::unique_ptr<Client<TimeMachine>> &&client, std::shared_ptr<TimeMachine> tm) {
-    auto version = client->set("key", "value").get().version;
-    tm->then(client->cas("key", "value1", 111), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
-    tm->then(client->get("key"), [](auto&& res) {std::cout << res.get().value << "\n";});
-    tm->then(client->cas("key", "value1", version), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
-    tm->then(client->get("key"), [](auto&& res) {std::cout << res.get().value << "\n";});
+void test_client(std::unique_ptr<Client<TimeMachine>>&& client) {
+    auto version = client->set("key", "valueqq").get().version;
+    std::cout << version << "\n";
+//    tm->then(client->cas("key", "value1", 111), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
+    try {
+        std::cout << client->get("key").get().value;
+    } catch (std::exception& e) {
+        std::cout << e.what();
+    }
+//    tm->then(client->cas("key", "value1", version), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
+    try {
+        std::cout << client->get("key").get().value;
+    } catch (std::exception& e) {
+        std::cout << e.what();
+    }
 }
 
 
@@ -43,9 +52,8 @@ void test_time_machine() {
 }
 
 int main() {
-    auto tm = std::make_shared<time_machine::TimeMachine<>>();
 //    test_client(connect("consul://127.0.0.1:8500"));
-    test_client(connect("zk://127.0.0.1:2181", tm), tm);
+    test_client(connect("zk://127.0.0.1:2181"));
 
     test_time_machine();
 }

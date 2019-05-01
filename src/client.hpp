@@ -9,6 +9,7 @@
 //#include "etcd_client.hpp"
 #include "util.hpp"
 #include "zk_client.hpp"
+#include "time_machine.hpp"
 
 
 

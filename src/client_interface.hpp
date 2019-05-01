@@ -46,6 +46,6 @@ public:
 //    virtual
 //    std::future<WatchResult> watch(const std::string& key) = 0;
 
-//    virtual
-//    void transaction(const std::string& key, const std::vector<Operation>& ops) = 0;
+    virtual
+    std::future<TransactionResult> commit(const Transaction&) = 0;
 };

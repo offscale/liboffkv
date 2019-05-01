@@ -151,17 +151,17 @@ public:
                 return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
             },
             [future_ptr, promise = std::move(promise), func = std::forward<Function>(func)]() {
-                    try {
-                        if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&)>>) {
-                            func(std::move(*future_ptr));
-                            promise->set_value();
-                        } else {
-                            auto to = func(std::move(*future_ptr));
-                            promise-> set_value(std::move(to));
-                        }
-                    } catch (...) {
-                        promise->set_exception(std::current_exception());
+                try {
+                    if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&)>>) {
+                        func(std::move(*future_ptr));
+                        promise->set_value();
+                    } else {
+                        auto to = func(std::move(*future_ptr));
+                        promise-> set_value(std::move(to));
                     }
+                } catch (...) {
+                    promise->set_exception(std::current_exception());
+                }
             }
         ));
 
