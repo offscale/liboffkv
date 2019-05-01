@@ -57,16 +57,15 @@ auto liboffkv_try(Func&& f)
 }
 
 
-// TODO: segfault if uncomment
 auto call_get = [](auto&& res) {
-//    return liboffkv_try([&res] {
+    return liboffkv_try([&res] {
         return res.get();
-//    });
+    });
 };
 
 
 auto call_get_then_ignore = [](auto&& res) {
-//    liboffkv_try([&res] {
+    liboffkv_try([&res] {
         res.get();
-//    });
+    });
 };

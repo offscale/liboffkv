@@ -85,17 +85,16 @@ public:
         });
     }
 
-    // fixit
     std::future<SetResult> set(const std::string& key, const std::string& value)
     {
         auto path = get_path(key);
 
         return this->time_machine_->then(
-            this->time_machine_->then(client_.create(path, from_string(value)), [](auto&& res) -> SetResult {
+            this->time_machine_->then(client_.create(path, from_string(value)), [path, value](auto&& res) -> SetResult {
                 call_get_then_ignore(res);
                 return {0};
             }),
-            [this, path = std::move(path), &value](auto&& set_res_future) -> SetResult {
+            [this, path, value](auto&& set_res_future) -> SetResult {
                 try {
                     auto set_result = call_get(set_res_future);
                     return set_result;
@@ -104,8 +103,6 @@ public:
                                     [](auto&& result) -> SetResult {
                                         return {call_get(result).stat().data_version.value};
                                     }));
-                } catch (std::exception& e) {
-                    std::cout << e.what();
                 }
             });
     }
