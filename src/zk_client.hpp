@@ -96,18 +96,16 @@ public:
             }),
             [this, path, value](auto&& set_res_future) -> SetResult {
                 try {
-                    auto set_result = call_get(set_res_future);
-                    return set_result;
+                    return call_get(set_res_future);
                 } catch (EntryExists&) {
                     return call_get(this->time_machine_->then(client_.set(path, from_string(value)),
-                                    [](auto&& result) -> SetResult {
-                                        return {call_get(result).stat().data_version.value};
-                                    }));
+                                                              [](auto&& result) -> SetResult {
+                                                                  return {call_get(result).stat().data_version.value};
+                                                              }));
                 }
             });
     }
 
-    // TODO (now doesn't work)
     std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
         if (version < 0)
@@ -115,15 +113,22 @@ public:
                 return {call_get(set_result).version, true};
             });
 
-        if (!version) {
-            try {
-                return this->time_machine_->then(create(key, value), [](auto&& res) -> CASResult {
-                    call_get(res);
-                    return {0, true};
-                });
-            } catch (zk::entry_exists&) {
+        auto path = get_path(key);
 
-            }
+        if (!version) {
+            return this->time_machine_->then(create(key, value), [this, path, value](auto&& res) -> CASResult {
+                try {
+                    call_get_then_ignore(res);
+                    return {0, true};
+                } catch (EntryExists&) {
+                    return call_get(this->time_machine_->then(
+                        client_.set(path, from_string(value), zk::version(0)),
+                        [](auto&& result) -> CASResult {
+                            auto new_version = static_cast<int64_t>(call_get(result).stat().data_version.value);
+                            return {new_version, 0 == new_version};
+                        }));
+                }
+            });
         }
         return this->time_machine_->then(
             client_.set(get_path(key), from_string(value), zk::version(version)),
