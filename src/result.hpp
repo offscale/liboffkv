@@ -38,19 +38,7 @@ struct GetResult : Result {
 };
 
 
-struct CASResult : Result {
-    bool success;
-
-    explicit operator bool() const
-    {
-        return success;
-    }
-
-    bool operator!() const
-    {
-        return !success;
-    }
-};
+struct CASResult : Result {};
 
 
 class TransactionResult {
@@ -59,7 +47,7 @@ private:
         op::op_type type;
         std::shared_ptr<Result> result;
 
-        OperationResult(op::op_type type, std::shared_ptr<Result> resul)
+        OperationResult(op::op_type type, std::shared_ptr<Result> result)
             : type(type), result(result)
         {}
     };
@@ -70,21 +58,12 @@ public:
     TransactionResult()
     {}
 
-    template <typename... Args>
-    TransactionResult(Args&&... args)
-        : op_results_(std::initializer_list<OperationResult>{std::forward<Args>(args)...})
-    {}
-
     TransactionResult(std::vector<OperationResult>&& res)
         : op_results_(std::move(res))
     {}
 
     TransactionResult(const std::vector<OperationResult>& res)
         : op_results_(res)
-    {}
-
-    TransactionResult(std::initializer_list<OperationResult>&& list)
-        : op_results_(std::move(list))
     {}
 
     TransactionResult(const TransactionResult&) = default;

@@ -3,26 +3,47 @@
 
 #include "client.hpp"
 #include "time_machine.hpp"
+#include "operation.hpp"
 
+
+
+auto tm = std::make_shared<time_machine::TimeMachine<>>();
 
 void test_time_machine();
 
 template <typename TimeMachine>
 void test_client(std::unique_ptr<Client<TimeMachine>>&& client) {
     auto version = client->set("key", "valueqq").get().version;
-    std::cout << version << "\n";
-//    tm->then(client->cas("key", "value1", 111), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
-    try {
-        std::cout << client->get("key").get().value;
-    } catch (std::exception& e) {
-        std::cout << e.what();
-    }
-//    tm->then(client->cas("key", "value1", version), [](auto&& res) -> void {std::cout << "changed: " << !!res.get() << "\n";});
-    try {
-        std::cout << client->get("key").get().value;
-    } catch (std::exception& e) {
-        std::cout << e.what();
-    }
+
+    tm->then(client->cas("key", "value1", 111), [version](auto&& cas_result) {
+        try {
+            auto new_version = cas_result.get().version;
+            std::cerr << "cas finished successfully! new key's version: " << new_version << std::endl;
+        } catch (VersionMismatch&) {
+            std::cerr << "cas failed! key's version was not " << 111 << std::endl;
+        }
+    });
+
+    std::cerr << client->get("key").get().value << std::endl;
+
+    tm->then(client->cas("key", "value1", version), [version](auto&& cas_result) {
+        try {
+            auto new_version = cas_result.get().version;
+            std::cerr << "cas finished successfully! new key's version: " << new_version << std::endl;
+        } catch (VersionMismatch&) {
+            std::cerr << "cas failed! key's version was not " << version << std::endl;
+        }
+    });
+
+    std::cerr << client->get("key").get().value << std::endl;
+
+
+//    client->commit(Transaction(
+//        op::Create("tr_key", "value"),
+//        op::Check("tr_key", 0),
+//        op::Set("tr_key", "new_value"),
+//        op::Erase("tr_key", 1)
+//    ));
 }
 
 
@@ -53,7 +74,7 @@ void test_time_machine() {
 
 int main() {
 //    test_client(connect("consul://127.0.0.1:8500"));
-    test_client(connect("zk://127.0.0.1:2181"));
+    test_client(connect("zk://127.0.0.1:2181", tm));
 
     test_time_machine();
 }

@@ -35,6 +35,14 @@ class EntryExists : public std::exception {
 };
 
 
+class VersionMismatch : public std::exception {
+    virtual const char* what() const noexcept override
+    {
+        return "version mismatch";
+    }
+};
+
+
 
 template <typename Func>
 auto liboffkv_try(Func&& f)
@@ -47,12 +55,14 @@ auto liboffkv_try(Func&& f)
                 throw NoEntry{};
             case zk::error_code::entry_exists:
                 throw EntryExists{};
+            case zk::error_code::version_mismatch:
+                throw VersionMismatch{};
             default: __builtin_unreachable();
         }
     } catch (ppconsul::BadStatus& e) {
-        throw;
+        throw e;
     } catch (ppconsul::kv::UpdateError& e) {
-        throw;
+        throw e;
     }
 }
 

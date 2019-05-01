@@ -76,14 +76,10 @@ public:
 
     template <typename... Ops>
     Transaction(Ops&&... ops)
-        : operations_(std::make_shared(std::forward<Ops>(ops))...)
+        : operations_(std::initializer_list<std::shared_ptr<op::Operation>>{
+            std::make_shared<std::decay_t<Ops>>(std::forward<Ops>(ops))...
+        })
     {}
-
-    Transaction(std::initializer_list<op::Operation>&& list)
-    {
-        for (auto&& elem : list)
-            operations_.push_back(std::make_shared<op::Operation>(std::forward<decltype(elem)>(elem)));
-    }
 
 
     void push_back(op::Operation&& res)

@@ -111,7 +111,7 @@ template<template<class> class Promise = std::promise,
          template<class> class Future  = std::future>
 class TimeMachine {
 public:
-    explicit TimeMachine(size_t number_of_threads = 1,
+    explicit TimeMachine(size_t number_of_threads = 2,
                          size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
         : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
     {
@@ -141,7 +141,8 @@ public:
 
 
     template<typename T, class Function>
-    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func) {
+    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func)
+    {
         auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
         auto new_future = promise->get_future();

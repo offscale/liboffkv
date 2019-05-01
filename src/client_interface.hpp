@@ -16,7 +16,11 @@ protected:
 
 public:
     Client(const std::string&, std::shared_ptr<TimeMachine> time_machine = nullptr)
-        : time_machine_(time_machine == nullptr ? std::make_shared<TimeMachine>() : time_machine)
+        : time_machine_(time_machine == nullptr ? std::make_shared<TimeMachine>() : std::move(time_machine))
+    {}
+
+    Client(Client&& another)
+        : time_machine_(std::move(another.time_machine_))
     {}
 
     Client() = default;

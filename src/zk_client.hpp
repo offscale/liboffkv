@@ -40,8 +40,8 @@ private:
 
 
 public:
-    ZKClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine = nullptr)
-        : Client<TimeMachine>(address, time_machine), client_(zk::client::connect(address).get())
+    ZKClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
+        : Client<TimeMachine>(address, std::move(time_machine)), client_(zk::client::connect(address).get())
     {
         client_.create(KV_STORAGE_ZNODE, buffer());
     }
@@ -55,7 +55,7 @@ public:
 
 
     ZKClient(ZKClient&& another)
-        : client_(std::move(another.client_))
+        : Client<TimeMachine>(another), client_(std::move(another.client_))
     {}
     
     ZKClient& operator=(ZKClient&& another)
@@ -110,7 +110,7 @@ public:
     {
         if (version < 0)
             return this->time_machine_->then(set(key, value), [](auto&& set_result) -> CASResult {
-                return {call_get(set_result).version, true};
+                return {call_get(set_result).version};
             });
 
         auto path = get_path(key);
@@ -119,13 +119,12 @@ public:
             return this->time_machine_->then(create(key, value), [this, path, value](auto&& res) -> CASResult {
                 try {
                     call_get_then_ignore(res);
-                    return {0, true};
+                    return {0};
                 } catch (EntryExists&) {
                     return call_get(this->time_machine_->then(
                         client_.set(path, from_string(value), zk::version(0)),
                         [](auto&& result) -> CASResult {
-                            auto new_version = static_cast<int64_t>(call_get(result).stat().data_version.value);
-                            return {new_version, 0 == new_version};
+                            return {static_cast<int64_t>(call_get(result).stat().data_version.value)};
                         }));
                 }
             });
@@ -133,8 +132,7 @@ public:
         return this->time_machine_->then(
             client_.set(get_path(key), from_string(value), zk::version(version)),
             [version](auto&& result) -> CASResult {
-                auto new_version = static_cast<int64_t>(call_get(result).stat().data_version.value);
-                return {new_version, version == new_version};
+                return {static_cast<int64_t>(call_get(result).stat().data_version.value)};
             });
     }
 
@@ -159,26 +157,26 @@ public:
     {
         zk::multi_op trn;
 
-        for (auto op_ptr : transaction) {
+        for (const auto& op_ptr : transaction) {
             switch (op_ptr->type) {
                 case op::op_type::CREATE: {
                     auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
-                    trn.emplace_back(zk::op::create(create_op_ptr->key, from_string(create_op_ptr->value)));
+                    trn.push_back(zk::op::create(create_op_ptr->key, from_string(create_op_ptr->value)));
                     break;
                 }
                 case op::op_type::CHECK: {
                     auto check_op_ptr = dynamic_cast<op::Check*>(op_ptr.get());
-                    trn.emplace_back(zk::op::check(check_op_ptr->key, zk::version(check_op_ptr->version)));
+                    trn.push_back(zk::op::check(check_op_ptr->key, zk::version(check_op_ptr->version)));
                     break;
                 }
                 case op::op_type::SET: {
                     auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
-                    trn.emplace_back(zk::op::set(set_op_ptr->key, from_string(set_op_ptr->value)));
+                    trn.push_back(zk::op::set(set_op_ptr->key, from_string(set_op_ptr->value)));
                     break;
                 }
                 case op::op_type::ERASE: {
                     auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                    trn.emplace_back(zk::op::erase(erase_op_ptr->key, zk::version(erase_op_ptr->version)));
+                    trn.push_back(zk::op::erase(erase_op_ptr->key, zk::version(erase_op_ptr->version)));
                     break;
                 }
                 default: __builtin_unreachable();
@@ -213,4 +211,4 @@ public:
 };
 
 template <typename TimeMachine>
-const std::string ZKClient<TimeMachine>::KV_STORAGE_ZNODE = "/kv";
+const std::string ZKClient<TimeMachine>::KV_STORAGE_ZNODE = "/__KV__";

@@ -14,12 +14,13 @@
 
 
 template <typename TimeMachine = time_machine::TimeMachine<>>
-std::unique_ptr<Client<TimeMachine>> connect(const std::string& address, std::shared_ptr<TimeMachine> tm = nullptr)
+std::unique_ptr<Client<TimeMachine>> connect(const std::string& address,
+                                             std::shared_ptr<TimeMachine> tm = nullptr)
 {
     auto [protocol, host_port] = get_protocol_address(address);
 
     if (protocol == "zk")
-        return std::make_unique<ZKClient<TimeMachine>>(protocol + "://" + host_port, tm);
+        return std::make_unique<ZKClient<TimeMachine>>(protocol + "://" + host_port, std::move(tm));
 //    if (protocol == "consul")
 //        return std::make_unique<ConsulClient>(host_port);
 //    if (protocol == "etcd")
