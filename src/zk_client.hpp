@@ -161,29 +161,29 @@ public:
             switch (op_ptr->type) {
                 case op::op_type::CREATE: {
                     auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
-                    trn.push_back(zk::op::create(create_op_ptr->key, from_string(create_op_ptr->value)));
+                    trn.push_back(zk::op::create(get_path(create_op_ptr->key), from_string(create_op_ptr->value)));
                     break;
                 }
                 case op::op_type::CHECK: {
                     auto check_op_ptr = dynamic_cast<op::Check*>(op_ptr.get());
-                    trn.push_back(zk::op::check(check_op_ptr->key, zk::version(check_op_ptr->version)));
+                    trn.push_back(zk::op::check(get_path(check_op_ptr->key), zk::version(check_op_ptr->version)));
                     break;
                 }
                 case op::op_type::SET: {
                     auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
-                    trn.push_back(zk::op::set(set_op_ptr->key, from_string(set_op_ptr->value)));
+                    trn.push_back(zk::op::set(get_path(set_op_ptr->key), from_string(set_op_ptr->value)));
                     break;
                 }
                 case op::op_type::ERASE: {
                     auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                    trn.push_back(zk::op::erase(erase_op_ptr->key, zk::version(erase_op_ptr->version)));
+                    trn.push_back(zk::op::erase(get_path(erase_op_ptr->key), zk::version(erase_op_ptr->version)));
                     break;
                 }
                 default: __builtin_unreachable();
             }
-        }
+        };
 
-        return this->time_machine_->then(client_.commit(trn), [](auto&& multi_res) {
+        return this->time_machine_->then(client_.commit(txn), [](auto&& multi_res) {
             TransactionResult result;
 
             auto multi_res_unwrapped = call_get(multi_res);

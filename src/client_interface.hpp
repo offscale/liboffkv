@@ -30,7 +30,7 @@ public:
 
 
     virtual
-    std::future<void> create(const std::string& key, const std::string& value, bool lease) = 0;
+    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) = 0;
 
     virtual
     std::future<ExistsResult> exists(const std::string& key) const = 0;
@@ -39,13 +39,13 @@ public:
     std::future<SetResult> set(const std::string& key, const std::string& value) = 0;
 
     virtual
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version) = 0;
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0) = 0;
 
     virtual
     std::future<GetResult> get(const std::string& key) const = 0;
 
     virtual
-    std::future<void> erase(const std::string& key, int64_t version) = 0;
+    std::future<void> erase(const std::string& key, int64_t version = 0) = 0;
 
 //    virtual
 //    std::future<WatchResult> watch(const std::string& key) = 0;
