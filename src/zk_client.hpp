@@ -183,7 +183,7 @@ public:
             }
         };
 
-        return this->time_machine_->then(client_.commit(txn), [](auto&& multi_res) {
+        return this->time_machine_->then(client_.commit(trn), [](auto&& multi_res) {
             TransactionResult result;
 
             auto multi_res_unwrapped = call_get(multi_res);
