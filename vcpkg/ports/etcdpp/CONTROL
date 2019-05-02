@@ -1,0 +1,4 @@
+Source: etcdpp
+Version: 0.1
+Description: A C++ client library for etcd
+Build-Depends: grpc, protobuf
