@@ -56,7 +56,7 @@ auto liboffkv_try(Func&& f)
             case zk::error_code::entry_exists:
                 throw EntryExists{};
             case zk::error_code::version_mismatch:
-                throw VersionMismatch{};
+                throw e;
             default: __builtin_unreachable();
         }
     } catch (ppconsul::BadStatus& e) {

@@ -41,7 +41,8 @@ private:
 
 public:
     ZKClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
-        : Client<TimeMachine>(address, std::move(time_machine)), client_(zk::client::connect(address).get())
+        : Client<TimeMachine>(address, std::move(time_machine)),
+          client_(zk::client::connect(address).get())
     {
         client_.create(KV_STORAGE_ZNODE, buffer());
     }
@@ -55,7 +56,8 @@ public:
 
 
     ZKClient(ZKClient&& another)
-        : Client<TimeMachine>(another), client_(std::move(another.client_))
+        : Client<TimeMachine>(std::move(another)),
+          client_(std::move(another.client_))
     {}
     
     ZKClient& operator=(ZKClient&& another)
@@ -110,7 +112,7 @@ public:
     {
         if (version < 0)
             return this->time_machine_->then(set(key, value), [](auto&& set_result) -> CASResult {
-                return {call_get(set_result).version};
+                return {call_get(set_result).version, true};
             });
 
         auto path = get_path(key);
@@ -119,12 +121,20 @@ public:
             return this->time_machine_->then(create(key, value), [this, path, value](auto&& res) -> CASResult {
                 try {
                     call_get_then_ignore(res);
-                    return {0};
+                    return {0, true};
                 } catch (EntryExists&) {
                     return call_get(this->time_machine_->then(
                         client_.set(path, from_string(value), zk::version(0)),
                         [](auto&& result) -> CASResult {
-                            return {static_cast<int64_t>(call_get(result).stat().data_version.value)};
+                            try {
+                                return {static_cast<int64_t>(call_get(result).stat().data_version.value), true};
+                            } catch (zk::error& e) {
+                                if (e.code() == zk::error_code::version_mismatch) {
+                                    // TODO: return real key's version instead of -1
+                                    return {-1, false};
+                                }
+                                throw e;
+                            }
                         }));
                 }
             });
@@ -132,7 +142,15 @@ public:
         return this->time_machine_->then(
             client_.set(get_path(key), from_string(value), zk::version(version)),
             [version](auto&& result) -> CASResult {
-                return {static_cast<int64_t>(call_get(result).stat().data_version.value)};
+                try {
+                    return {static_cast<int64_t>(call_get(result).stat().data_version.value), true};
+                } catch (zk::error& e) {
+                    if (e.code() == zk::error_code::version_mismatch) {
+                        // TODO: return real key's version instead of -1
+                        return {-1, false};
+                    }
+                    throw e;
+                }
             });
     }
 

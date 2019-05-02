@@ -15,23 +15,27 @@ template <typename TimeMachine>
 void test_client(std::unique_ptr<Client<TimeMachine>>&& client) {
     auto version = client->set("key", "valueqq").get().version;
 
-    tm->then(client->cas("key", "value1", 111), [version](auto&& cas_result) {
+    tm->then(client->cas("key", "value1", 111), [](auto&& cas_result) {
         try {
-            auto new_version = cas_result.get().version;
-            std::cerr << "cas finished successfully! new key's version: " << new_version << std::endl;
-        } catch (VersionMismatch&) {
-            std::cerr << "cas failed! key's version was not " << 111 << std::endl;
+            if (!!cas_result.get()) {
+                auto new_version = cas_result.get().version;
+                std::cout << "cas finished successfully! new key's version: " << new_version << std::endl;
+            } else {
+                std::cout << "cas failed! key's version was not " << 111 << std::endl;
+            }
+        } catch (std::exception& e) {
+            std::cerr << e.what();
         }
     });
 
     std::cerr << client->get("key").get().value << std::endl;
 
     tm->then(client->cas("key", "value1", version), [version](auto&& cas_result) {
-        try {
+        if (!!cas_result.get()) {
             auto new_version = cas_result.get().version;
-            std::cerr << "cas finished successfully! new key's version: " << new_version << std::endl;
-        } catch (VersionMismatch&) {
-            std::cerr << "cas failed! key's version was not " << version << std::endl;
+            std::cout << "cas finished successfully! new key's version: " << new_version << std::endl;
+        } else {
+            std::cout << "cas failed! key's version was not " << version << std::endl;
         }
     });
 
@@ -73,8 +77,9 @@ void test_time_machine() {
 }
 
 int main() {
-//    test_client(connect("consul://127.0.0.1:8500"));
+//    test_client(connect("consul://127.0.0.1:8500", tm));
     test_client(connect("zk://127.0.0.1:2181", tm));
+//    test_client(connect("etcd://127.0.0.1:2379", tm));
 
     test_time_machine();
 }

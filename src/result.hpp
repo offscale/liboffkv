@@ -38,7 +38,19 @@ struct GetResult : Result {
 };
 
 
-struct CASResult : Result {};
+struct CASResult : Result {
+    bool success;
+
+    explicit operator bool() const
+    {
+        return success;
+    }
+
+    bool operator!() const
+    {
+        return !success;
+    }
+};
 
 
 class TransactionResult {
