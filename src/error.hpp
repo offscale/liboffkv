@@ -18,6 +18,15 @@ public:
 };
 
 
+class InvalidKey : public std::exception {
+public:
+    virtual const char * what() const noexcept override
+    {
+        return "invalid key";
+    }
+};
+
+
 class NoEntry : public std::exception {
 public:
     virtual const char* what() const noexcept override
@@ -31,14 +40,6 @@ class EntryExists : public std::exception {
     virtual const char* what() const noexcept override
     {
         return "entry exists";
-    }
-};
-
-
-class VersionMismatch : public std::exception {
-    virtual const char* what() const noexcept override
-    {
-        return "version mismatch";
     }
 };
 

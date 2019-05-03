@@ -2,8 +2,9 @@
 
 
 #include "client.hpp"
-#include "time_machine.hpp"
+#include "key.hpp"
 #include "operation.hpp"
+#include "time_machine.hpp"
 
 
 
@@ -76,8 +77,18 @@ void test_time_machine() {
     }
 }
 
+
+void test_path_parse() {
+    std::string path = "/foo/bar/bax/kek";
+    auto parsed = parse(path);
+    for (const auto& key : parsed)
+        std::cout << "<" << key << ">" << " ";
+}
+
+
 int main() {
-//    test_client(connect("consul://127.0.0.1:8500", tm));
+    test_path_parse();
+    test_client(connect("consul://127.0.0.1:8500", tm));
     test_client(connect("zk://127.0.0.1:2181", tm));
 //    test_client(connect("etcd://127.0.0.1:2379", tm));
 
