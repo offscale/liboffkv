@@ -13,14 +13,12 @@
 #include <vector>
 
 
-
 namespace time_machine {
 
 class QueueClosed : public std::runtime_error {
 public:
     QueueClosed()
-        : std::runtime_error("Queue closed for Puts")
-    {}
+            : std::runtime_error("Queue closed for Puts") {}
 };
 
 
@@ -31,10 +29,9 @@ public:
     explicit BlockingQueue() = default;
 
     // throws QueueClosed exception after Close
-    template <typename U>
-    void put(U&& item)
-    {
-        std::unique_lock <std::mutex> lock(lock_);
+    template<typename U>
+    void put(U&& item) {
+        std::unique_lock<std::mutex> lock(lock_);
 
         if (closed_) {
             throw QueueClosed();
@@ -45,8 +42,7 @@ public:
     }
 
     // returns false if queue is empty and closed
-    bool get(T& item)
-    {
+    bool get(T& item) {
         std::unique_lock<std::mutex> lock(lock_);
 
         while (!closed_ && isEmpty())
@@ -61,8 +57,7 @@ public:
         return true;
     }
 
-    bool get(std::vector<T>& out_items, size_t max_count, bool require_at_least_one)
-    {
+    bool get(std::vector<T>& out_items, size_t max_count, bool require_at_least_one) {
         if (!max_count)
             return true;
 
@@ -85,16 +80,14 @@ public:
         return true;
     }
 
-    void close()
-    {
+    void close() {
         std::unique_lock<std::mutex> lock(lock_);
 
         closed_ = true;
         consumer_cv_.notify_all();
     }
 
-    bool isEmpty() const
-    {
+    bool isEmpty() const {
         return items_.empty();
     }
 
@@ -107,29 +100,26 @@ private:
 
 
 template<template<class> class Promise = std::promise,
-         template<class> class Future  = std::future>
+        template<class> class Future  = std::future>
 class TimeMachine {
 public:
     explicit TimeMachine(size_t number_of_threads = 1,
                          size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
-        : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
-    {
+            : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms) {
         for (size_t i = 0; i < number_of_threads; ++i)
-            run_thread_();
+            run_thread();
     }
 
     TimeMachine(const TimeMachine&) = delete;
 
     TimeMachine(TimeMachine&& machine)
-        : queue_(std::move(machine.queue_)), state_(std::move(machine.state_)),
-          objects_per_thread_(machine.objects_per_thread_),
-          wait_for_object_ms_(machine.wait_for_object_ms_)
-    {}
+            : queue_(std::move(machine.queue_)), state_(std::move(machine.state_)),
+              objects_per_thread_(machine.objects_per_thread_),
+              wait_for_object_ms_(machine.wait_for_object_ms_) {}
 
     TimeMachine& operator=(const TimeMachine&) = delete;
 
-    TimeMachine& operator=(TimeMachine&& machine)
-    {
+    TimeMachine& operator=(TimeMachine&& machine) {
         queue_ = std::move(machine.queue_);
         state_ = std::move(machine.state_);
         objects_per_thread_ = machine.objects_per_thread_;
@@ -140,65 +130,107 @@ public:
 
 
     template<typename T, class Function>
-    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func)
-    {
+    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func) {
         auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
         auto new_future = promise->get_future();
 
         queue_->put(std::make_pair(
-            [future_ptr](std::chrono::milliseconds timeout_duration) {
-                return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
-            },
-            [future_ptr, promise = std::move(promise), func = std::forward<Function>(func)]() {
-                try {
-                    if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&)>>) {
-                        func(std::move(*future_ptr));
-                        promise->set_value();
-                    } else {
-                        auto to = func(std::move(*future_ptr));
-                        promise->set_value(std::move(to));
-                    }
-                } catch (...) {
+                [future_ptr](std::chrono::milliseconds timeout_duration) {
+                    return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
+                },
+                [future_ptr, promise = std::move(promise), func = std::forward<Function>(func)]() {
                     try {
-                        promise->set_exception(std::current_exception());
+                        if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&)>>) {
+                            func(std::move(*future_ptr));
+                            promise->set_value();
+                        } else {
+                            auto to = func(std::move(*future_ptr));
+                            promise->set_value(std::move(to));
+                        }
+                    } catch (...) {
+                        try {
+                            promise->set_exception(std::current_exception());
+                        } catch (...) {}
+                    }
+                }
+        ));
+
+        return new_future;
+    }
+
+    template<typename T, class Function>
+    Future<std::result_of_t<Function(Future<T>&&)>> prioritized(Future<T>&& future, Function&& func) {
+        auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
+        auto future_ptr = std::make_shared<Future<T>>(std::move(future));
+        auto new_future = promise->get_future();
+
+        auto finished_promise = std::make_shared<std::promise<void>>();
+        run_thread(finished_promise->get_future());
+
+        queue_->put(std::make_pair(
+                [future_ptr](std::chrono::milliseconds timeout_duration) {
+                    return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
+                },
+                [future_ptr, promise = std::move(promise), finished_promise = std::move(finished_promise),
+                        func = std::forward<Function>(func)]() {
+                    try {
+                        if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&)>>) {
+                            func(std::move(*future_ptr));
+                            promise->set_value();
+                        } else {
+                            auto to = func(std::move(*future_ptr));
+                            promise->set_value(std::move(to));
+                        }
+                    } catch (...) {
+                        try {
+                            promise->set_exception(std::current_exception());
+                        } catch (...) {}
+                    }
+
+                    try {
+                        finished_promise->set_value();
                     } catch (...) {}
                 }
-            }
         ));
 
         return new_future;
     }
 
 
-    ~TimeMachine()
-    {
-        queue_->close();
-        while (!queue_->isEmpty())
-            std::this_thread::yield();
-        while (state_->load())
-            std::this_thread::yield();
+    ~TimeMachine() {
+        if (queue_) {
+            queue_->close();
+            while (!queue_->isEmpty())
+                std::this_thread::yield();
+            while (state_->load())
+                std::this_thread::yield();
+        }
     }
 
 
 private:
     using QueueData = std::pair<std::function<bool(std::chrono::milliseconds)>, std::function<void()>>;
 
-    void run_thread_()
-    {
-        std::thread([this] {
+    void run_thread(std::future<void> allow_death = std::future<void>()) {
+        std::thread([state_ = this->state_, queue_ = this->queue_, allow_death = std::move(allow_death),
+                            objects_per_thread_ = this->objects_per_thread_, wait_for_object_ms_ = this->wait_for_object_ms_] {
             std::vector<QueueData> picked;
             state_->fetch_add(1);
 
-            while (queue_->get(picked, objects_per_thread_ - picked.size(), picked.empty()))
-                process_objects_(picked);
+            while (queue_->get(picked, objects_per_thread_ - picked.size(), picked.empty())) {
+                process_objects_(picked, wait_for_object_ms_);
+
+                if (allow_death.valid() &&
+                    allow_death.wait_for(std::chrono::milliseconds(wait_for_object_ms_)) == std::future_status::ready)
+                    break;
+            }
 
             state_->fetch_sub(1);
         }).detach();
     }
 
-    void process_objects_(std::vector<QueueData>& picked) const
-    {
+    static void process_objects_(std::vector<QueueData>& picked, size_t wait_for_object_ms_) {
         for (auto it = picked.begin(); it < picked.end(); ++it) {
             if (it->first(std::chrono::milliseconds(wait_for_object_ms_))) {
                 it->second();
@@ -208,8 +240,8 @@ private:
     }
 
 private:
-    std::unique_ptr<BlockingQueue<QueueData>> queue_ = std::make_unique<BlockingQueue<QueueData>>();
-    std::unique_ptr<std::atomic<long long>> state_ = std::make_unique<std::atomic<long long>>(0);
+    std::shared_ptr<BlockingQueue<QueueData>> queue_ = std::make_shared<BlockingQueue<QueueData>>();
+    std::shared_ptr<std::atomic<long long>> state_ = std::make_shared<std::atomic<long long>>(0);
     size_t objects_per_thread_;
     unsigned long long wait_for_object_ms_;
 };
