@@ -40,7 +40,7 @@ private:
 
 
 public:
-    ZKClient(const std::string& address, std::shared_ptr <TimeMachine> time_machine)
+    ZKClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
         : Client<TimeMachine>(address, std::move(time_machine)),
           client_(zk::client::connect(address).get())
     {
@@ -84,38 +84,38 @@ public:
         );
     }
 
-    std::future <ExistsResult> exists(const std::string& key) const
+    std::future<ExistsResult> exists(const std::string& key) const
     {
         return this->time_machine_->then(client_.exists(get_path(key)),
-                                         [](std::future <zk::exists_result>&& result) -> ExistsResult {
+                                         [](std::future<zk::exists_result>&& result) -> ExistsResult {
                                              zk::exists_result unwrapped = call_get(std::move(result));
                                              auto stat = unwrapped.stat();
 
                                              return {stat.has_value()
-                                                     ? static_cast<int64_t>(stat.value().data_version.value)
-                                                     : -1, !!unwrapped};
+                                                     ? static_cast<int64_t>(stat.value().data_version.value) : -1,
+                                                     !!unwrapped};
                                          });
     }
 
-    std::future <SetResult> set(const std::string& key, const std::string& value)
+    std::future<SetResult> set(const std::string& key, const std::string& value)
     {
         auto path = get_path(key);
 
         return this->time_machine_->then(
             this->time_machine_->then(
                 client_.create(path, from_string(value)),
-                [path, value](std::future <zk::create_result>&& res) -> SetResult {
+                [path, value](std::future<zk::create_result>&& res) -> SetResult {
                     call_get(std::move(res));
                     return {0};
                 }
             ),
-            [this, path, value](std::future <SetResult>&& set_res_future) -> SetResult {
+            [this, path, value](std::future<SetResult>&& set_res_future) -> SetResult {
                 try {
                     return call_get(std::move(set_res_future));
                 } catch (EntryExists&) {
                     return call_get(this->time_machine_->prioritized(
                         client_.set(path, from_string(value)),
-                        [](std::future <zk::set_result>&& result) -> SetResult {
+                        [](std::future<zk::set_result>&& result) -> SetResult {
                             return {call_get(std::move(result)).stat().data_version.value};
                         }
                     ));
@@ -124,10 +124,10 @@ public:
         );
     }
 
-    std::future <CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
         if (version < 0)
-            return this->time_machine_->then(set(key, value), [](std::future <SetResult>&& set_result) -> CASResult {
+            return this->time_machine_->then(set(key, value), [](std::future<SetResult>&& set_result) -> CASResult {
                 return {call_get(std::move(set_result)).version, true};
             });
 
@@ -142,7 +142,7 @@ public:
                                                  } catch (EntryExists&) {
                                                      return call_get(this->time_machine_->then(
                                                          client_.set(path, from_string(value), zk::version(0)),
-                                                         [](std::future <zk::set_result>&& result) -> CASResult {
+                                                         [](std::future<zk::set_result>&& result) -> CASResult {
                                                              try {
                                                                  return {static_cast<int64_t>(call_get(std::move(
                                                                      result)).stat().data_version.value), true};
@@ -159,7 +159,7 @@ public:
         }
         return this->time_machine_->then(
             client_.set(get_path(key), from_string(value), zk::version(version)),
-            [version](std::future <zk::set_result>&& result) -> CASResult {
+            [version](std::future<zk::set_result>&& result) -> CASResult {
                 try {
                     return {static_cast<int64_t>(call_get(std::move(result)).stat().data_version.value), true};
                 } catch (zk::error& e) {
@@ -172,13 +172,15 @@ public:
             });
     }
 
-    std::future <GetResult> get(const std::string& key) const
+    std::future<GetResult> get(const std::string& key) const
     {
-        return this->time_machine_->then(client_.get(get_path(key)),
-                                         [](std::future <zk::get_result>&& result) -> GetResult {
-                                             auto res = call_get(std::move(result));
-                                             return {res.stat().data_version.value, to_string(res.data())};
-                                         });
+        return this->time_machine_->then(
+            client_.get(get_path(key)),
+            [](std::future<zk::get_result>&& result) -> GetResult {
+                auto res = call_get(std::move(result));
+                return {res.stat().data_version.value, to_string(res.data())};
+            }
+        );
     }
 
     std::future<void> erase(const std::string& key, int64_t version = 0)
@@ -190,7 +192,7 @@ public:
         return this->time_machine_->then(client_.erase(path, zk::version(version)), call_get<void>);
     }
 
-    std::future <TransactionResult> commit(const Transaction& transaction)
+    std::future<TransactionResult> commit(const Transaction& transaction)
     {
         zk::multi_op trn;
 
@@ -221,7 +223,7 @@ public:
             }
         };
 
-        return this->time_machine_->then(client_.commit(trn), [](std::future <zk::multi_result>&& multi_res) {
+        return this->time_machine_->then(client_.commit(trn), [](std::future<zk::multi_result>&& multi_res) {
             TransactionResult result;
 
             auto multi_res_unwrapped = call_get(std::move(multi_res));

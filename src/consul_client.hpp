@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include "ppconsul/consul.h"
 #include "ppconsul/kv.h"
 
@@ -15,10 +16,11 @@ private:
     using Kv = ppconsul::kv::Kv;
 
     Consul client_;
-    std::unique_ptr <Kv> kv_;
+    std::unique_ptr<Kv> kv_;
+    mutable std::mutex lock_;
 
 public:
-    ConsulClient(const std::string& address, std::shared_ptr <TimeMachine> time_machine)
+    ConsulClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
         : Client<TimeMachine>(address, time_machine),
           client_(Consul(address)), kv_(std::make_unique<Kv>(client_))
     {}
@@ -55,6 +57,7 @@ public:
     {
         return std::async(std::launch::async,
                           [this, key, value] {
+                              std::unique_lock lock(lock_);
                               try {
                                   if (kv_->count(key))
                                       throw EntryExists{};
@@ -63,10 +66,11 @@ public:
                           });
     }
 
-    std::future <ExistsResult> exists(const std::string& key) const
+    std::future<ExistsResult> exists(const std::string& key) const
     {
         return std::async(std::launch::async,
                           [this, key]() -> ExistsResult {
+                              std::unique_lock lock(lock_);
                               try {
                                   auto item = kv_->item(ppconsul::withHeaders, key);
                                   return {item.headers().index(), item.data().valid()};
@@ -74,20 +78,22 @@ public:
                           });
     }
 
-    std::future <SetResult> set(const std::string& key, const std::string& value)
+    std::future<SetResult> set(const std::string& key, const std::string& value)
     {
         return std::async(std::launch::async,
                           [this, key, value]() -> SetResult {
+                              std::unique_lock lock(lock_);
                               try {
                                   return {kv_->item(ppconsul::withHeaders, key).headers().index()};
                               } liboffkv_catch
                           });
     }
 
-    std::future <CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
         return std::async(std::launch::async,
                           [this, key, value, version]() -> CASResult {
+                              std::unique_lock lock(lock_);
                               try {
                                   if (version < 0)
                                       return {set(key, value).get().version, true};
@@ -97,10 +103,11 @@ public:
                           });
     }
 
-    std::future <GetResult> get(const std::string& key) const
+    std::future<GetResult> get(const std::string& key) const
     {
         return std::async(std::launch::async,
                           [this, key]() -> GetResult {
+                              std::unique_lock lock(lock_);
                               try {
                                   auto item = kv_->item(ppconsul::withHeaders, std::move(key));
                                   if (!item.data().valid())
@@ -114,6 +121,7 @@ public:
     {
         std::async(std::launch::async,
                    [this, key, version] {
+                       std::unique_lock lock(lock_);
                        try {
                            if (version < 0)
                                kv_->erase(key);
@@ -124,7 +132,7 @@ public:
     }
 
     // TODO
-    std::future <TransactionResult> commit(const Transaction& transaction)
+    std::future<TransactionResult> commit(const Transaction& transaction)
     {
         return std::async(std::launch::async, [] { return TransactionResult(); });
     }

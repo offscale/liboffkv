@@ -24,7 +24,7 @@ public:
 };
 
 
-template <typename T, class Container = std::deque <T>>
+template <typename T, class Container = std::deque<T>>
 class BlockingQueue {
 public:
     // capacity == 0 means queue is unbounded
@@ -34,7 +34,7 @@ public:
     template <typename U>
     void put(U&& item)
     {
-        std::unique_lock <std::mutex> lock(lock_);
+        std::unique_lock<std::mutex> lock(lock_);
 
         if (closed_) {
             throw QueueClosed();
@@ -47,7 +47,7 @@ public:
     // returns false if queue is empty and closed
     bool get(T& item)
     {
-        std::unique_lock <std::mutex> lock(lock_);
+        std::unique_lock<std::mutex> lock(lock_);
 
         while (!closed_ && isEmpty())
             consumer_cv_.wait(lock);
@@ -61,12 +61,12 @@ public:
         return true;
     }
 
-    bool get(std::vector <T>& out_items, size_t max_count, bool require_at_least_one)
+    bool get(std::vector<T>& out_items, size_t max_count, bool require_at_least_one)
     {
         if (!max_count)
             return true;
 
-        std::unique_lock <std::mutex> lock(lock_);
+        std::unique_lock<std::mutex> lock(lock_);
 
         if (require_at_least_one) {
             while (!closed_ && isEmpty())
@@ -87,7 +87,7 @@ public:
 
     void close()
     {
-        std::unique_lock <std::mutex> lock(lock_);
+        std::unique_lock<std::mutex> lock(lock_);
 
         closed_ = true;
         consumer_cv_.notify_all();
@@ -140,10 +140,11 @@ public:
 
 
     template <typename T, class Function>
-    Future<std::result_of_t < Function(Future<T> && )>> then(
-    Future<T>&& future, Function
-    && func) {
-        auto promise = std::make_shared < Promise<std::result_of_t < Function(Future<T> && )>>>();
+    Future<std::result_of_t<Function(Future<T>&&)>> then(
+        Future<T>&& future, Function
+    && func)
+    {
+        auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
         auto new_future = promise->get_future();
 
@@ -153,7 +154,7 @@ public:
             },
             [future_ptr, promise = std::move(promise), func = std::forward<Function>(func)]() {
                 try {
-                    if constexpr (std::is_same_v < void, std::result_of_t < Function(Future<T> && ) >>) {
+                    if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&) >>) {
                         func(std::move(*future_ptr));
                         promise->set_value();
                     } else {
@@ -172,14 +173,13 @@ public:
     }
 
     template <typename T, class Function>
-    Future<std::result_of_t < Function(Future<T> && )>> prioritized(
-    Future<T>&& future, Function
-    && func) {
-        auto promise = std::make_shared < Promise<std::result_of_t < Function(Future<T> && )>>>();
+    Future<std::result_of_t<Function(Future<T>&&)>> prioritized(Future<T>&& future, Function&& func)
+    {
+        auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
         auto new_future = promise->get_future();
 
-        auto finished_promise = std::make_shared < std::promise < void >> ();
+        auto finished_promise = std::make_shared<std::promise<void >>();
         run_thread(finished_promise->get_future());
 
         queue_->put(std::make_pair(
@@ -189,7 +189,7 @@ public:
             [future_ptr, promise = std::move(promise), finished_promise = std::move(finished_promise),
                 func = std::forward<Function>(func)]() {
                 try {
-                    if constexpr (std::is_same_v < void, std::result_of_t < Function(Future<T> && ) >>) {
+                    if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&) >>) {
                         func(std::move(*future_ptr));
                         promise->set_value();
                     } else {
@@ -225,13 +225,13 @@ public:
 
 
 private:
-    using QueueData = std::pair <std::function<bool(std::chrono::milliseconds)>, std::function<void()>>;
+    using QueueData = std::pair<std::function<bool(std::chrono::milliseconds)>, std::function<void()>>;
 
     void run_thread(std::future<void> allow_death = std::future<void>())
     {
         std::thread([state_ = this->state_, queue_ = this->queue_, allow_death = std::move(allow_death),
                         objects_per_thread_ = this->objects_per_thread_, wait_for_object_ms_ = this->wait_for_object_ms_] {
-            std::vector <QueueData> picked;
+            std::vector<QueueData> picked;
             state_->fetch_add(1);
 
             while (queue_->get(picked, objects_per_thread_ - picked.size(), picked.empty())) {
@@ -247,7 +247,7 @@ private:
         }).detach();
     }
 
-    static void process_objects_(std::vector <QueueData>& picked, size_t wait_for_object_ms_)
+    static void process_objects_(std::vector<QueueData>& picked, size_t wait_for_object_ms_)
     {
         for (auto it = picked.begin(); it < picked.end(); ++it) {
             if (it->first(std::chrono::milliseconds(wait_for_object_ms_))) {
@@ -258,8 +258,8 @@ private:
     }
 
 private:
-    std::shared_ptr <BlockingQueue<QueueData>> queue_ = std::make_shared<BlockingQueue<QueueData>>();
-    std::shared_ptr <std::atomic<long long>> state_ = std::make_shared < std::atomic < long long >> (0);
+    std::shared_ptr<BlockingQueue<QueueData>> queue_ = std::make_shared<BlockingQueue<QueueData>>();
+    std::shared_ptr<std::atomic<long long>> state_ = std::make_shared<std::atomic<long long >>(0);
     size_t objects_per_thread_;
     unsigned long long wait_for_object_ms_;
 };
