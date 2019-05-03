@@ -44,39 +44,34 @@ class EntryExists : public std::exception {
 };
 
 
-
-template <typename Func>
-auto liboffkv_try(Func&& f)
-{
-    try {
-        return std::forward<Func>(f)();
-    } catch (zk::error& e) {
-        switch (e.code()) {
-            case zk::error_code::no_entry:
-                throw NoEntry{};
-            case zk::error_code::entry_exists:
-                throw EntryExists{};
-            case zk::error_code::version_mismatch:
-                throw e;
-            default: __builtin_unreachable();
-        }
-    } catch (ppconsul::BadStatus& e) {
-        throw e;
-    } catch (ppconsul::kv::UpdateError& e) {
-        throw e;
+#define liboffkv_catch catch (zk::error& e) {\
+        switch (e.code()) {\
+            case zk::error_code::no_entry:\
+                throw NoEntry{};\
+            case zk::error_code::entry_exists:\
+                throw EntryExists{};\
+            case zk::error_code::version_mismatch:\
+                throw e;\
+            default: __builtin_unreachable();\
+        }\
+    } catch (ppconsul::BadStatus& e) {\
+        throw e;\
+    } catch (ppconsul::kv::UpdateError& e) {\
+        throw e;\
     }
+
+
+
+template <class T>
+T call_get(std::future<T>&& future) {
+    try {
+        return future.get();
+    } liboffkv_catch
 }
 
-
-auto call_get = [](auto&& res) {
-    return liboffkv_try([&res] {
-        return res.get();
-    });
-};
-
-
-auto call_get_then_ignore = [](auto&& res) {
-    liboffkv_try([&res] {
-        res.get();
-    });
-};
+template <class T>
+void call_get_ignore(std::future<T>&& future) {
+    try {
+        future.get();
+    } liboffkv_catch
+}

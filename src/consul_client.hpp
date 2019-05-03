@@ -53,58 +53,58 @@ public:
     {
         return std::async(std::launch::async,
             [this, key, value] {
-                liboffkv_try([this, key = std::move(key), value = std::move(value)] {
+                try {
                     if (kv_->count(key))
                         throw EntryExists{};
                     kv_->set(key, value);
-                });
+                } liboffkv_catch
             });
     }
 
     std::future<ExistsResult> exists(const std::string& key) const
     {
         return std::async(std::launch::async,
-            [this, key] {
-                return liboffkv_try([this, key = std::move(key)]() -> ExistsResult {
+            [this, key]() -> ExistsResult {
+                try {
                     auto item = kv_->item(ppconsul::withHeaders, key);
                     return {item.headers().index(), item.data().valid()};
-                });
+                } liboffkv_catch
             });
     }
 
     std::future<SetResult> set(const std::string& key, const std::string& value)
     {
         return std::async(std::launch::async,
-            [this, key, value] {
-                return liboffkv_try([this, key = std::move(key), value = std::move(value)]() -> SetResult {
+            [this, key, value]() -> SetResult {
+                try {
                     return {kv_->item(ppconsul::withHeaders, key).headers().index()};
-                });
+                } liboffkv_catch
             });
     }
 
     std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
     {
         return std::async(std::launch::async,
-            [this, key, value, version] {
-                return liboffkv_try([this, key = std::move(key), value = std::move(value), version]() -> CASResult {
+            [this, key, value, version]() -> CASResult {
+                try {
                     if (version < 0)
                         return {set(key, value).get().version, true};
                     auto success = kv_->compareSet(key, version, value);
                     return {kv_->item(ppconsul::withHeaders, key).headers().index(), success};
-                });
+                } liboffkv_catch
             });
     }
 
     std::future<GetResult> get(const std::string& key) const
     {
         return std::async(std::launch::async,
-            [this, key] {
-                return liboffkv_try([this, key = std::move(key)]() -> GetResult {
+            [this, key]() -> GetResult {
+                try {
                     auto item = kv_->item(ppconsul::withHeaders, std::move(key));
                     if (!item.data().valid())
                         throw NoEntry{};
                     return {item.headers().index(), item.data().value};
-                });
+                } liboffkv_catch
             });
     }
 
@@ -112,12 +112,12 @@ public:
     {
         std::async(std::launch::async,
             [this, key, version] {
-                liboffkv_try([this, key = std::move(key), version] {
+                try {
                     if (version < 0)
                         kv_->erase(key);
                     else
                         kv_->compareErase(key, version);
-                });
+                } liboffkv_catch
             });
     }
 

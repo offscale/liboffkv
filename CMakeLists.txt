@@ -13,9 +13,11 @@ link_libraries(${CMAKE_THREAD_LIBS_INIT})
 
 add_library(liboffkv INTERFACE)
 target_include_directories(liboffkv INTERFACE src)
-target_include_directories(liboffkv INTERFACE stdexperimental)
 target_link_libraries(liboffkv INTERFACE ppconsul)
 target_link_libraries(liboffkv INTERFACE zkpp)
 
 add_executable(test_lib src/test.cpp)
 target_link_libraries(test_lib liboffkv)
+
+add_executable(playground src/playground.cpp)
+target_link_libraries(playground liboffkv)

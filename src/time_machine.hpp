@@ -28,8 +28,7 @@ template<typename T, class Container = std::deque<T>>
 class BlockingQueue {
 public:
     // capacity == 0 means queue is unbounded
-    explicit BlockingQueue()
-    {}
+    explicit BlockingQueue() = default;
 
     // throws QueueClosed exception after Close
     template <typename U>
@@ -111,7 +110,7 @@ template<template<class> class Promise = std::promise,
          template<class> class Future  = std::future>
 class TimeMachine {
 public:
-    explicit TimeMachine(size_t number_of_threads = 2,
+    explicit TimeMachine(size_t number_of_threads = 1,
                          size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
         : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
     {
@@ -158,10 +157,12 @@ public:
                         promise->set_value();
                     } else {
                         auto to = func(std::move(*future_ptr));
-                        promise-> set_value(std::move(to));
+                        promise->set_value(std::move(to));
                     }
                 } catch (...) {
-                    promise->set_exception(std::current_exception());
+                    try {
+                        promise->set_exception(std::current_exception());
+                    } catch (...) {}
                 }
             }
         ));
