@@ -13,7 +13,8 @@ auto tm = std::make_shared<time_machine::TimeMachine<>>();
 void test_time_machine();
 
 template <typename TimeMachine>
-void test_client(std::unique_ptr<Client<TimeMachine>>&& client) {
+void test_client(std::unique_ptr <Client<TimeMachine>>&& client)
+{
     auto version = client->set("key", "valueqq").get().version;
 
     tm->then(client->cas("key", "value1", 111), [](auto&& cas_result) {
@@ -52,18 +53,19 @@ void test_client(std::unique_ptr<Client<TimeMachine>>&& client) {
 }
 
 
-void test_time_machine() {
+void test_time_machine()
+{
     time_machine::TimeMachine<std::promise, std::future> timeMachine;
 
     std::promise<int> a;
-    timeMachine.then(timeMachine.then(a.get_future(), [](auto &&f) {
+    timeMachine.then(timeMachine.then(a.get_future(), [](auto&& f) {
         return "Ready: " + std::to_string(f.get());
     }), [](auto&& f) {
         std::cout << f.get() << std::endl;
     });
 
     std::promise<int> b;
-    std::future<int> future_b = timeMachine.then(b.get_future(), [](auto &&f) -> int {
+    std::future<int> future_b = timeMachine.then(b.get_future(), [](auto&& f) -> int {
         throw std::runtime_error("My error!");
     });
 
@@ -78,7 +80,8 @@ void test_time_machine() {
 }
 
 
-void test_path_parse() {
+void test_path_parse()
+{
     std::string path = "/foo/bar/bax/kek";
     auto parsed = parse(path);
     for (const auto& key : parsed)
@@ -86,7 +89,8 @@ void test_path_parse() {
 }
 
 
-int main() {
+int main()
+{
     test_path_parse();
     test_client(connect("consul://127.0.0.1:8500", tm));
     test_client(connect("zk://127.0.0.1:2181", tm));

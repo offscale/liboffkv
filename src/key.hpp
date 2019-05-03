@@ -7,7 +7,6 @@
 
 
 
-
 bool verify_unit(const std::string& unit)
 {
     return unit.size() > 0 &&
@@ -16,9 +15,9 @@ bool verify_unit(const std::string& unit)
 }
 
 
-std::vector<std::string> parse(const std::string& key)
+std::vector <std::string> parse(const std::string& key)
 {
-    std::vector<std::string> ans;
+    std::vector <std::string> ans;
     if (key.size() < 2 || key[0] != '/')
         throw InvalidKey{};
 

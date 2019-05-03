@@ -8,7 +8,7 @@
 
 
 
-std::pair<std::string, std::string> get_protocol_address(const std::string& address)
+std::pair <std::string, std::string> get_protocol_address(const std::string& address)
 {
     static const std::string DELIM = "://";
 

@@ -3,7 +3,9 @@
 #include <iostream>
 
 
-int main() {
+
+int main()
+{
 
     std::promise<int> promise;
     std::future<int> f = promise.get_future();

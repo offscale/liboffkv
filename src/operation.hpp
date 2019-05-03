@@ -10,6 +10,7 @@ enum class op_type {
     ERASE,
 };
 
+
 struct Operation {
     op_type type;
     std::string key;
@@ -62,23 +63,24 @@ struct Erase : Operation {
 
 class Transaction {
 private:
-    std::vector<std::shared_ptr<op::Operation>> operations_;
+    std::vector <std::shared_ptr<op::Operation>> operations_;
 
 public:
     Transaction()
     {}
 
     Transaction(const Transaction&) = default;
+
     Transaction(Transaction&&) = default;
 
     ~Transaction()
     {}
 
     template <typename... Ops>
-    Transaction(Ops&&... ops)
-        : operations_(std::initializer_list<std::shared_ptr<op::Operation>>{
-            std::make_shared<std::decay_t<Ops>>(std::forward<Ops>(ops))...
-        })
+    Transaction(Ops&& ... ops)
+        : operations_(std::initializer_list < std::shared_ptr < op::Operation >> {
+        std::make_shared < std::decay_t < Ops >> (std::forward<Ops>(ops))...
+    })
     {}
 
 

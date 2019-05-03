@@ -11,7 +11,7 @@
 
 class InvalidAddress : public std::exception {
 public:
-    virtual const char * what() const noexcept override
+    virtual const char* what() const noexcept override
     {
         return "invalid address";
     }
@@ -20,7 +20,7 @@ public:
 
 class InvalidKey : public std::exception {
 public:
-    virtual const char * what() const noexcept override
+    virtual const char* what() const noexcept override
     {
         return "invalid key";
     }
@@ -61,16 +61,17 @@ class EntryExists : public std::exception {
     }
 
 
-
 template <class T>
-T call_get(std::future<T>&& future) {
+T call_get(std::future <T>&& future)
+{
     try {
         return future.get();
     } liboffkv_catch
 }
 
 template <class T>
-void call_get_ignore(std::future<T>&& future) {
+void call_get_ignore(std::future <T>&& future)
+{
     try {
         future.get();
     } liboffkv_catch
