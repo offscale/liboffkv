@@ -73,11 +73,11 @@ public:
     TransactionResult()
     {}
 
-    TransactionResult(std::vector <OperationResult>&& res)
+    TransactionResult(std::vector<OperationResult>&& res)
         : op_results_(std::move(res))
     {}
 
-    TransactionResult(const std::vector <OperationResult>& res)
+    TransactionResult(const std::vector<OperationResult>& res)
         : op_results_(res)
     {}
 

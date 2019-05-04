@@ -54,8 +54,7 @@ public:
     ZKClient& operator=(const ZKClient&) = delete;
 
 
-    ~ZKClient()
-    {}
+    ~ZKClient() = default;
 
 
     ZKClient(ZKClient&& another)

@@ -21,7 +21,7 @@ private:
 
 public:
     ConsulClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
-        : Client<TimeMachine>(address, time_machine),
+        : Client<TimeMachine>(address, std::move(time_machine)),
           client_(Consul(address)), kv_(std::make_unique<Kv>(client_))
     {}
 
@@ -32,8 +32,7 @@ public:
     ConsulClient& operator=(const ConsulClient&) = delete;
 
 
-    ~ConsulClient()
-    {}
+    ~ConsulClient() = default;
 
 
     ConsulClient(ConsulClient&& another)
@@ -56,7 +55,7 @@ public:
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
         return std::async(std::launch::async,
-                          [this, key, value] {
+                          [this, key, value, lease] {
                               std::unique_lock lock(lock_);
                               try {
                                   if (kv_->count(key))
