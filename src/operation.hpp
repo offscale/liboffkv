@@ -63,7 +63,31 @@ struct Erase : Operation {
 
 class Transaction {
 private:
-    std::vector <std::shared_ptr<op::Operation>> operations_;
+    std::vector<std::shared_ptr<op::Operation>> operations_;
+
+
+    template <typename... Ops>
+    static
+    std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl)
+    {
+        return make_list_(tpl, std::tuple_size<decltype(tpl)>::value);
+    }
+
+    template <typename... Ops, size_t N, typename Indices = std::make_index_sequence<N>>
+    static
+    std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl,
+                                                                     std::integral_constant<size_t, N>)
+    {
+        return make_list_(tpl, Indices{});
+    }
+
+    template <typename... Ops, size_t... indices>
+    static
+    std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl,
+                                                                     std::index_sequence<indices...>)
+    {
+        return {std::make_shared<Ops>(tpl[indices])...};
+    }
 
 public:
     Transaction()
@@ -78,9 +102,14 @@ public:
 
     template <typename... Ops>
     Transaction(Ops&& ... ops)
-        : operations_(std::initializer_list < std::shared_ptr < op::Operation >> {
-        std::make_shared < std::decay_t < Ops >> (std::forward<Ops>(ops))...
-    })
+        : operations_(std::initializer_list<std::shared_ptr<op::Operation>> {
+            std::make_shared<std::decay_t<Ops>>(std::forward<Ops>(ops))...
+        })
+    {}
+
+    template <typename... Ops>
+    Transaction(std::tuple<Ops...>&& tpl)
+        : operations_(make_list_(tpl))
     {}
 
 

@@ -52,7 +52,9 @@ class EntryExists : public std::exception {
                 throw EntryExists{};\
             case zk::error_code::version_mismatch:\
                 throw e;\
-            default: __builtin_unreachable();\
+            default: \
+                throw e; \
+            /*default: __builtin_unreachable();\*/ \
         }\
     } catch (ppconsul::BadStatus& e) {\
         throw e;\

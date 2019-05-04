@@ -143,8 +143,10 @@ public:
                                                          client_.set(path, from_string(value), zk::version(0)),
                                                          [](std::future<zk::set_result>&& result) -> CASResult {
                                                              try {
-                                                                 return {static_cast<int64_t>(call_get(std::move(
-                                                                     result)).stat().data_version.value), true};
+                                                                 return {static_cast<int64_t>(
+                                                                         call_get(std::move(result)).stat()
+                                                                                                    .data_version
+                                                                                                    .value), true};
                                                              } catch (zk::error& e) {
                                                                  if (e.code() == zk::error_code::version_mismatch) {
                                                                      // TODO: return real key's version instead of -1

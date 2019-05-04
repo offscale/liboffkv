@@ -15,7 +15,12 @@ bool verify_unit(const std::string& unit)
 }
 
 
-std::vector <std::string> parse(const std::string& key)
+/*
+ * /foo/bar/baz => std::vector<std::string>{"/foo", "/foo/bar", "/foo/bar/baz"}
+ *
+ * throws InvalidKey if key is incorrect
+ */
+std::vector <std::string> get_entry_sequence(const std::string& key)
 {
     std::vector <std::string> ans;
     if (key.size() < 2 || key[0] != '/')
@@ -24,7 +29,7 @@ std::vector <std::string> parse(const std::string& key)
     auto it = ++key.begin();
     while (it != key.end()) {
         auto end = std::find(it, key.end(), '/');
-        ans.push_back(std::string(it, end));
+        ans.push_back((ans.size() ? ans.back() : std::string()) + "/" + std::string(it, end));
 
         if (!verify_unit(ans.back()))
             throw InvalidKey{};

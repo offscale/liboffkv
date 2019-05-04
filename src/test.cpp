@@ -44,12 +44,13 @@ void test_client(std::unique_ptr <Client<TimeMachine>>&& client)
     std::cerr << client->get("key").get().value << std::endl;
 
 
-//    client->commit(Transaction(
+//    client->commit(
+//    {
 //        op::Create("tr_key", "value"),
 //        op::Check("tr_key", 0),
 //        op::Set("tr_key", "new_value"),
 //        op::Erase("tr_key", 1)
-//    ));
+//    });
 }
 
 
@@ -83,7 +84,7 @@ void test_time_machine()
 void test_path_parse()
 {
     std::string path = "/foo/bar/bax/kek";
-    auto parsed = parse(path);
+    auto parsed = get_entry_sequence(path);
     for (const auto& key : parsed)
         std::cout << "<" << key << ">" << " ";
 }
