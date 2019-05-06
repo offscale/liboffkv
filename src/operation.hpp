@@ -70,7 +70,7 @@ private:
     static
     std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl)
     {
-        return make_list_(tpl, std::tuple_size<decltype(tpl)>::value);
+        return make_list_(std::move(tpl), std::tuple_size<decltype(tpl)>::value);
     }
 
     template <typename... Ops, size_t N, typename Indices = std::make_index_sequence<N>>
@@ -78,7 +78,7 @@ private:
     std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl,
                                                                      std::integral_constant<size_t, N>)
     {
-        return make_list_(tpl, Indices{});
+        return make_list_(std::move(tpl), Indices{});
     }
 
     template <typename... Ops, size_t... indices>

@@ -7,9 +7,9 @@
 #include "consul_client.hpp"
 #include "error.hpp"
 //#include "etcd_client.hpp"
+#include "time_machine.hpp"
 #include "util.hpp"
 #include "zk_client.hpp"
-#include "time_machine.hpp"
 
 
 
@@ -24,7 +24,7 @@ std::unique_ptr<Client<TimeMachine>> connect(const std::string& address,
     if (protocol == "consul")
         return std::make_unique<ConsulClient<TimeMachine>>(host_port, std::move(tm));
 //    if (protocol == "etcd")
-//        return std::make_unique<ETCDClient>(host_port);
+//        return std::make_unique<ETCDClient>(host_port, std::move(tm));
     else
         throw InvalidAddress{};
 }

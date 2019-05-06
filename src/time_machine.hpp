@@ -140,9 +140,7 @@ public:
 
 
     template <typename T, class Function>
-    Future<std::result_of_t<Function(Future<T>&&)>> then(
-        Future<T>&& future, Function
-    && func)
+    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func)
     {
         auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
@@ -230,7 +228,7 @@ private:
     void run_thread(std::future<void> allow_death = std::future<void>())
     {
         std::thread([state_ = this->state_, queue_ = this->queue_, allow_death = std::move(allow_death),
-                        objects_per_thread_ = this->objects_per_thread_, wait_for_object_ms_ = this->wait_for_object_ms_] {
+                     objects_per_thread_ = this->objects_per_thread_, wait_for_object_ms_ = this->wait_for_object_ms_] {
             std::vector<QueueData> picked;
             state_->fetch_add(1);
 
