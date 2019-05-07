@@ -13,7 +13,7 @@ auto tm = std::make_shared<time_machine::TimeMachine<>>();
 void test_time_machine();
 
 template <typename TimeMachine>
-void test_client(std::unique_ptr <Client<TimeMachine>>&& client)
+void test_client(std::unique_ptr<Client<TimeMachine>>&& client)
 {
     auto version = client->set("key", "valueqq").get().version;
 
@@ -78,6 +78,19 @@ void test_time_machine()
     } catch (const std::runtime_error& err) {
         std::cout << err.what() << std::endl;
     }
+
+    auto intFuture = timeMachine.async(
+        [](int a, int b, int c) {
+            std::cout << "Async testing: " << a << ' ' << b << std::endl;
+            return c;
+        },
+        1, 2, 3);
+    timeMachine.then(
+        std::move(intFuture),
+        [](std::future<int>&& future) {
+            std::cout << future.get() << std::endl;
+        }
+    );
 }
 
 
@@ -92,9 +105,9 @@ void test_path_parse()
 
 int main()
 {
-    test_path_parse();
-    test_client(connect("consul://127.0.0.1:8500", tm));
-    test_client(connect("zk://127.0.0.1:2181", tm));
+//    test_path_parse();
+//    test_client(connect("consul://127.0.0.1:8500", tm));
+//    test_client(connect("zk://127.0.0.1:2181", tm));
 //    test_client(connect("etcd://127.0.0.1:2379", tm));
 
     test_time_machine();

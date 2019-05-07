@@ -112,11 +112,12 @@ public:
                 try {
                     return call_get(std::move(set_res_future));
                 } catch (EntryExists&) {
-                    return call_get(this->time_machine_->prioritized(
+                    return call_get(this->time_machine_->then(
                         client_.set(path, from_string(value)),
                         [](std::future<zk::set_result>&& result) -> SetResult {
                             return {call_get(std::move(result)).stat().data_version.value};
-                        }
+                        },
+                        true
                     ));
                 }
             }

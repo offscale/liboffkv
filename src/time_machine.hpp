@@ -140,17 +140,25 @@ public:
 
 
     template <typename T, class Function>
-    Future<std::result_of_t<Function(Future<T>&&)>> then(Future<T>&& future, Function&& func)
+    Future<std::result_of_t<Function(Future<T>&&)>>
+    then(Future<T>&& future, Function&& func, const bool run_extra_thread = false)
     {
         auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
         auto future_ptr = std::make_shared<Future<T>>(std::move(future));
         auto new_future = promise->get_future();
 
+        std::shared_ptr<std::atomic<bool>> allow_death;
+        if (run_extra_thread) {
+            allow_death = std::make_shared<std::atomic<bool>>(false);
+            run_thread(allow_death);
+        }
+
         queue_->put(std::make_pair(
-            [future_ptr](std::chrono::milliseconds timeout_duration) {
+            [future_ptr](std::chrono::milliseconds timeout_duration) mutable {
                 return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
             },
-            [future_ptr, promise = std::move(promise), func = std::forward<Function>(func)]() {
+            [future_ptr, promise = std::move(promise), finished_flag = std::move(allow_death),
+                func = std::forward<Function>(func)]() mutable {
                 try {
                     if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&) >>) {
                         func(std::move(*future_ptr));
@@ -164,34 +172,36 @@ public:
                         promise->set_exception(std::current_exception());
                     } catch (...) {}
                 }
+
+                if (finished_flag)
+                    finished_flag->store(true, std::memory_order::memory_order_relaxed);
             }
         ));
 
         return new_future;
     }
 
-    template <typename T, class Function>
-    Future<std::result_of_t<Function(Future<T>&&)>> prioritized(Future<T>&& future, Function&& func)
-    {
-        auto promise = std::make_shared<Promise<std::result_of_t<Function(Future<T>&&)>>>();
-        auto future_ptr = std::make_shared<Future<T>>(std::move(future));
-        auto new_future = promise->get_future();
 
-        auto finished_promise = std::make_shared<std::promise<void >>();
-        run_thread(finished_promise->get_future());
+    template <class Function, class... Args>
+    std::future<std::invoke_result_t<std::decay_t<Function>, std::decay_t<Args>...>>
+    async(Function&& func, Args&& ... args)
+    {
+        using T = std::invoke_result_t<std::decay_t<Function>, std::decay_t<Args>...>;
+        auto promise = std::make_shared<std::promise<T>>();
+        auto future = promise->get_future();
 
         queue_->put(std::make_pair(
-            [future_ptr](std::chrono::milliseconds timeout_duration) {
-                return future_ptr->wait_for(timeout_duration) == std::future_status::ready;
+            [](std::chrono::milliseconds timeout_duration) mutable {
+                return true;
             },
-            [future_ptr, promise = std::move(promise), finished_promise = std::move(finished_promise),
-                func = std::forward<Function>(func)]() {
+            [promise = std::move(promise), func = std::forward<Function>(func),
+                args = std::make_tuple(std::forward<Args>(args)...)]() mutable {
                 try {
-                    if constexpr (std::is_same_v<void, std::result_of_t<Function(Future<T>&&) >>) {
-                        func(std::move(*future_ptr));
+                    if constexpr (std::is_same_v<void, T>) {
+                        std::apply(std::forward<Function>(func), std::move(args));
                         promise->set_value();
                     } else {
-                        auto to = func(std::move(*future_ptr));
+                        auto to = std::apply(std::forward<Function>(func), std::move(args));
                         promise->set_value(std::move(to));
                     }
                 } catch (...) {
@@ -199,14 +209,10 @@ public:
                         promise->set_exception(std::current_exception());
                     } catch (...) {}
                 }
-
-                try {
-                    finished_promise->set_value();
-                } catch (...) {}
             }
         ));
 
-        return new_future;
+        return future;
     }
 
 
@@ -225,19 +231,17 @@ public:
 private:
     using QueueData = std::pair<std::function<bool(std::chrono::milliseconds)>, std::function<void()>>;
 
-    void run_thread(std::future<void> allow_death = std::future<void>())
+    void run_thread(std::shared_ptr<std::atomic<bool>> allow_death = nullptr)
     {
         std::thread([state_ = this->state_, queue_ = this->queue_, allow_death = std::move(allow_death),
-                     objects_per_thread_ = this->objects_per_thread_, wait_for_object_ms_ = this->wait_for_object_ms_] {
+                        objects_per_thread_ = this->objects_per_thread_, wait_for_object_ms_ = this->wait_for_object_ms_] {
             std::vector<QueueData> picked;
             state_->fetch_add(1);
 
             while (queue_->get(picked, objects_per_thread_ - picked.size(), picked.empty())) {
                 process_objects_(picked, wait_for_object_ms_);
 
-                if (allow_death.valid() &&
-                    allow_death.wait_for(std::chrono::milliseconds(wait_for_object_ms_)) ==
-                    std::future_status::ready)
+                if (allow_death && allow_death->load(std::memory_order::memory_order_relaxed))
                     break;
             }
 
