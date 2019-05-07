@@ -27,7 +27,6 @@ public:
 template <typename T, class Container = std::deque<T>>
 class BlockingQueue {
 public:
-    // capacity == 0 means queue is unbounded
     explicit BlockingQueue() = default;
 
     // throws QueueClosed exception after Close
@@ -76,7 +75,7 @@ public:
                 return false;
         }
 
-        size_t count = std::min(max_count, items_.size());
+        const size_t count = std::min(max_count, items_.size());
         for (size_t i = 0; i < count; ++i) {
             out_items.push_back(std::move(items_.front()));
             items_.pop_front();
@@ -241,7 +240,7 @@ private:
             while (queue_->get(picked, objects_per_thread_ - picked.size(), picked.empty())) {
                 process_objects_(picked, wait_for_object_ms_);
 
-                if (allow_death && allow_death->load(std::memory_order::memory_order_relaxed))
+                if (picked.empty() && allow_death && allow_death->load(std::memory_order::memory_order_relaxed))
                     break;
             }
 
