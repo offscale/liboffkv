@@ -101,13 +101,6 @@ public:
     {}
 
     template <typename... Ops>
-    Transaction(Ops&& ... ops)
-        : operations_(std::initializer_list<std::shared_ptr<op::Operation>> {
-            std::make_shared<std::decay_t<Ops>>(std::forward<Ops>(ops))...
-        })
-    {}
-
-    template <typename... Ops>
     Transaction(std::tuple<Ops...>&& tpl)
         : operations_(make_list_(tpl))
     {}

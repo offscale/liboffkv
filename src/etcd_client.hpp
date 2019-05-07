@@ -4,6 +4,7 @@
 #include <etcdpp/kv.pb.h>
 #include <etcdpp/rpc.pb.h>
 #include <etcdpp/rpc.grpc.pb.h>
+#include <grpcpp/security/credentials.h>
 
 
 #include "client_interface.hpp"
@@ -13,47 +14,28 @@
 template <typename TimeMachine>
 class ETCDClient : public Client<TimeMachine> {
 private:
-    using grpc::Channel;
-    using grpc::ClientContext;
-    using grpc::Status;
-    using grpc::CompletionQueue;
-
     using KV = etcdserverpb::KV;
 
-    using etcdserver::PutRequest;
-    using etcdserver::PutResponse;
-    using etcdserver::RangeRequest;
-    using etcdserver::RangeResponse;
+    using PutRequest = etcdserverpb::PutRequest;
+    using PutResponse = etcdserverpb::PutResponse;
+    using RangeRequest = etcdserverpb::RangeRequest;
+    using RangeResponse = etcdserverpb::RangeResponse;
+    using DeleteRangeRequest = etcdserverpb::DeleteRangeRequest;
+    using DeleteRangeResponse = etcdserverpb::DeleteRangeResponse;
+    using TxnRequest = etcdserverpb::TxnRequest;
+    using TxnResponse = etcdserverpb::TxnResponse;
+    using Compare = etcdserverpb::Compare;
+    using RequestOp = etcdserverpb::RequestOp;
 
     std::shared_ptr<grpc::Channel> channel_;
-    std::unique_ptr<RouteGuide::Stub> stub_;
+    std::unique_ptr<KV::Stub> stub_;
 
-
-    template <typename T>
-    static
-    T get_response(std::unique_ptr<grpc::ClientAsyncResponseReader<T>>&& reader, grpc::CompletionQueue& queue, int tag)
-    {
-        T res;
-        grpc::Status status;
-        reader->Finish(&res, &status, &k);
-
-        void* tag;
-        bool ok;
-        do {
-            queue.Next(&tag, &ok);
-        } while (!ok || tag != &k);
-
-        if (status.ok())
-            return res;
-
-        throw status.error_message();
-    }
 
 public:
-    ETCDClient(const std::string& address, std::shared_ptr<TimeMachine> tm = nullptr)
+    ETCDClient(const std::string& address, std::shared_ptr<TimeMachine> tm)
         : Client<TimeMachine>(address, std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
-          stub_(KV::Stub::NewStub(channel_))
+          stub_(KV::NewStub(channel_))
     {}
 
     ETCDClient() = delete;
@@ -63,14 +45,14 @@ public:
 
     ETCDClient(ETCDClient&& another)
         : Client<TimeMachine>(std::move(another)),
-          client_(std::move(another.client_)),
-          stub_(KV::Stub::NewStub(channel_))
+          channel_(std::move(another.channel_)),
+          stub_(KV::NewStub(channel_))
     {}
 
     ETCDClient& operator=(ETCDClient&& another)
     {
-        client_ = std::move(another.client_);
-        stub_ = KeyValueStore::NewStub(channel_);
+        channel_ = std::move(another.channel_);
+        stub_ = KV::NewStub(channel_);
         this->time_machine_ = std::move(another.time_machine_);
 
         return *this;
@@ -85,9 +67,33 @@ public:
     {
         return std::async(std::launch::async,
                           [this, key, value, lease] {
-                              try {
-                                    //
-                              } liboffkv_catch
+                              grpc::ClientContext context;
+
+                              Compare cmp;
+                              cmp.set_key(key);
+                              cmp.set_target(Compare::CREATE);
+                              cmp.set_result(Compare::EQUAL);
+                              cmp.set_create_revision(0);
+
+                              PutRequest request;
+                              request.set_key(key);
+                              request.set_value(value);
+                              request.set_lease(lease);
+
+                              RequestOp requestOp;
+                              requestOp.set_allocated_request_put(&request);
+
+                              TxnRequest txn;
+                              new (txn.add_compare()) Compare(std::move(cmp));
+                              new (txn.add_success()) etcdserverpb::RequestOp(std::move(requestOp));
+                              TxnResponse response;
+
+                              auto status = stub_->Txn(&context, txn, &response);
+                              if (!status.ok())
+                                  throw status.error_message();
+
+                              if (!response.succeeded())
+                                  throw EntryExists{};
                           });
     }
 
@@ -96,22 +102,22 @@ public:
     {
         return std::async(std::launch::async,
                           [this, key]() -> ExistsResult {
-                              try {
-                                  ClientContext context;
-                                  CompletionQueue queue;
+                              grpc::ClientContext context;
 
-                                  RangeRequest request;
-                                  request.set_key(key);
-                                  request.set_limit(1);
+                              RangeRequest request;
+                              request.set_key(key);
+                              request.set_limit(1);
+                              RangeResponse response;
 
-                                  auto response = get_response(stub_->AsyncRange(context.get(), request, &queue),
-                                                               queue, 1);
-                                  if (!response.kvs_size())
-                                      return {-1, false};
+                              auto status = stub_->Range(&context, request, &response);
+                              if (!status.ok())
+                                  throw status.error_message();
 
-                                  auto kv = response.kvs(0);
-                                  return {kv.version(), true};
-                              } liboffkv_catch
+                              if (!response.kvs_size())
+                                  return {-1, false};
+
+                              auto kv = response.kvs(0);
+                              return {kv.version(), true};
                           });
     }
 
@@ -144,23 +150,23 @@ public:
     {
         return std::async(std::launch::async,
                           [this, key]() -> GetResult{
-                              try {
-                                  ClientContext context;
-                                  CompletionQueue queue;
+                              grpc::ClientContext context;
 
-                                  RangeRequest request;
-                                  request.set_key(key);
-                                  request.set_limit(1);
+                              RangeRequest request;
+                              request.set_key(key);
+                              request.set_limit(1);
 
-                                  auto response = get_response(stub_->AsyncRange(context.get(), request, &queue),
-                                                               queue, 1);
-                                  if (!response.kvs_size())
-                                      throw NoEntry{};
+                              RangeResponse response;
+                              auto status = stub_->Range(&context, request, &response);
 
-                                  auto kv = response.kvs(0);
-                                  return {kv.version(), kv.value()};
+                              if (!status.ok())
+                                  throw status.error_message();
 
-                              } liboffkv_catch
+                              if (!response.kvs_size())
+                                  throw NoEntry{};
+
+                              auto kv = response.kvs(0);
+                              return {kv.version(), kv.value()};
                           });
     }
 
@@ -169,16 +175,20 @@ public:
     std::future<void> erase(const std::string& key, int64_t version = 0)
     {
         return std::async(std::launch::async,
-                          [this, key]() -> ExistsResult {
-                              try {
-                                  ClientContext context;
-                                  CompletionQueue queue;
+                          [this, key] {
+                              grpc::ClientContext context;
 
-                                  DeleteRangeRequest request;
-                                  request.set_key(key);
+                              DeleteRangeRequest request;
+                              request.set_key(key);
 
-                                  get_response(stub_->AsyncRange(context.get(), request, &queue), queue, 1);
-                              } liboffkv_catch
+                              DeleteRangeResponse response;
+
+                              auto status = stub_->DeleteRange(&context, request, &response);
+                              if (!status.ok())
+                                  throw status.error_message();
+
+                              if (!response.deleted())
+                                  throw NoEntry{};
                           });
     }
 
