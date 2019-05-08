@@ -5,8 +5,8 @@ set(VCPKG_BUILD_TYPE release) # this string must be somewhere else, not here
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO tgockel/zookeeper-cpp
-    REF v0.2.2
-    SHA512 64302e69e106cf314aa1861e79aaad175cec8f821b7b2ead17075b5db06a8a7484d723dae482ebf6c3185a0a8d57a915081dfbf399cd72eeeb90f58f01d94b3c
+    REF v0.2.3
+    SHA512 086f31d4ca53f5a585fd8640caf9f2f21c90cf46d9cfe6c0e8e5b8c620e73265bb8aebec62ea4328f3f098a9b3000280582569966c0d3401627ab8c3edc31ca8
     HEAD_REF master
 )
 

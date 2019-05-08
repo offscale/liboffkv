@@ -1,4 +1,4 @@
 Source: zkpp
-Version: 0.2.3
+Version: 0.2.3-1
 Description: A ZooKeeper client for C++.
 Build-Depends: gtest
