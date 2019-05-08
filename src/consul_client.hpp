@@ -51,7 +51,8 @@ public:
     }
 
 
-    // TODO: use lease, consider blocking queries
+    // TODO: use lease
+    // TODO in general: use transactions everywhere to check existance before update and so on atomically
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
         return std::async(std::launch::async,
@@ -88,13 +89,13 @@ public:
                           });
     }
 
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
     {
         return std::async(std::launch::async,
                           [this, key, value, version]() -> CASResult {
                               std::unique_lock lock(lock_);
                               try {
-                                  if (version < 0)
+                                  if (version < int64_t(0))
                                       return {set(key, value).get().version, true};
                                   auto success = kv_->compareSet(key, version, value);
                                   return {kv_->item(ppconsul::withHeaders, key).headers().index(), success};
@@ -116,13 +117,17 @@ public:
                           });
     }
 
-    std::future<void> erase(const std::string& key, int64_t version = 0)
+    std::future<void> erase(const std::string& key, int64_t version)
     {
         std::async(std::launch::async,
                    [this, key, version] {
                        std::unique_lock lock(lock_);
                        try {
-                           if (version < 0)
+                           auto item = kv_->item(ppconsul::withHeaders, key);
+                           if (!item.data().valid())
+                               throw NoEntry{};
+
+                           if (version < int64_t(0))
                                kv_->erase(key);
                            else
                                kv_->compareErase(key, version);

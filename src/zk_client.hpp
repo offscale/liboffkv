@@ -77,7 +77,7 @@ public:
             client_.create(
                 get_path(key),
                 from_string(value),
-                lease ? zk::create_mode::normal : zk::create_mode::ephemeral
+                !lease ? zk::create_mode::normal : zk::create_mode::ephemeral
             ),
             call_get_ignore<zk::create_result>
         );
@@ -103,7 +103,7 @@ public:
         return this->time_machine_->then(
             this->time_machine_->then(
                 client_.create(path, from_string(value)),
-                [path, value](std::future<zk::create_result>&& res) -> SetResult {
+                [](std::future<zk::create_result>&& res) -> SetResult {
                     call_get(std::move(res));
                     return {0};
                 }
@@ -114,7 +114,7 @@ public:
                 } catch (EntryExists&) {
                     return call_get(this->time_machine_->then(
                         client_.set(path, from_string(value)),
-                        [](std::future<zk::set_result>&& result) -> SetResult {
+                        [path](std::future<zk::set_result>&& result) -> SetResult {
                             return {call_get(std::move(result)).stat().data_version.value};
                         },
                         true
@@ -124,9 +124,9 @@ public:
         );
     }
 
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
     {
-        if (version < 0)
+        if (version < int64_t(0))
             return this->time_machine_->then(set(key, value), [](std::future<SetResult>&& set_result) -> CASResult {
                 return {call_get(std::move(set_result)).version, true};
             });
@@ -185,11 +185,11 @@ public:
         );
     }
 
-    std::future<void> erase(const std::string& key, int64_t version = 0)
+    std::future<void> erase(const std::string& key, int64_t version)
     {
         auto path = get_path(key);
 
-        if (version < 0)
+        if (version < int64_t(0))
             return this->time_machine_->then(client_.erase(path), call_get<void>);
         return this->time_machine_->then(client_.erase(path, zk::version(version)), call_get<void>);
     }

@@ -62,30 +62,30 @@ public:
     ~ETCDClient() = default;
 
 
-    // TODO
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
         return std::async(std::launch::async,
                           [this, key, value, lease] {
                               grpc::ClientContext context;
 
-                              Compare cmp;
-                              cmp.set_key(key);
-                              cmp.set_target(Compare::CREATE);
-                              cmp.set_result(Compare::EQUAL);
-                              cmp.set_create_revision(0);
-
-                              PutRequest request;
-                              request.set_key(key);
-                              request.set_value(value);
-                              request.set_lease(lease);
-
-                              RequestOp requestOp;
-                              requestOp.set_allocated_request_put(&request);
+                              // put request
+                              auto request = new PutRequest();
+                              request->set_key(key);
+                              request->set_value(value);
+                              request->set_lease(lease);
 
                               TxnRequest txn;
-                              new (txn.add_compare()) Compare(std::move(cmp));
-                              new (txn.add_success()) etcdserverpb::RequestOp(std::move(requestOp));
+
+                              // put condition: entry exists iff its create_revision > 0
+                              auto cmp = txn.add_compare();
+                              cmp->set_key(key);
+                              cmp->set_target(Compare::CREATE);
+                              cmp->set_result(Compare::EQUAL);
+                              cmp->set_create_revision(0);
+
+                              auto requestOp = txn.add_success();
+                              requestOp->set_allocated_request_put(request);
+
                               TxnResponse response;
 
                               auto status = stub_->Txn(&context, txn, &response);
@@ -122,26 +122,101 @@ public:
     }
 
 
-    // TODO
     std::future<SetResult> set(const std::string& key, const std::string& value)
     {
         return std::async(std::launch::async,
-                          [this, key, value]() -> SetResult {
-                              try {
-                                  return {};
-                              } liboffkv_catch
+                          [this, key, value]() -> SetResult  {
+                              grpc::ClientContext context;
+
+                              // put request
+                              auto request = new PutRequest();
+                              request->set_key(key);
+                              request->set_value(value);
+
+                              // range request after put to get key's version
+                              auto get_request = new RangeRequest();
+                              get_request->set_key(key);
+                              get_request->set_limit(1);
+
+                              TxnRequest txn;
+
+                              auto cmp = txn.add_compare();
+                              cmp->set_key(key);
+                              cmp->set_target(Compare::CREATE);
+                              cmp->set_result(Compare::GREATER);
+                              cmp->set_create_revision(0);
+
+                              auto requestOp_put = txn.add_success();
+                              requestOp_put->set_allocated_request_put(request);
+
+                              auto requestOp_get = txn.add_success();
+                              requestOp_get->set_allocated_request_range(get_request);
+
+                              TxnResponse response;
+
+                              auto status = stub_->Txn(&context, txn, &response);
+                              if (!status.ok())
+                                  throw status.error_message();
+
+                              if (!response.succeeded())
+                                  throw NoEntry{};
+
+                              return {response.mutable_responses(1)->release_response_range()->kvs(0).version()};
                           });
     }
 
 
-    // TODO
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version = 0)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
     {
         return std::async(std::launch::async,
-                          [this, key]() -> CASResult {
-                              try {
-                                  return {};
-                              } liboffkv_catch
+                          [this, key, value, version]() -> CASResult  {
+                              if (version < int64_t(0))
+                                  return {set(key, value).get().version, true};
+                              grpc::ClientContext context;
+
+                              // put request
+                              auto request = new PutRequest();
+                              request->set_key(key);
+                              request->set_value(value);
+
+                              // range request after put to get key's version
+                              auto get_request = new RangeRequest();
+                              get_request->set_key(key);
+                              get_request->set_limit(1);
+
+                              // range request after fail to determine real key's version
+                              auto get_request_failure = new RangeRequest();
+                              get_request_failure->set_key(key);
+                              get_request_failure->set_limit(1);
+
+                              TxnRequest txn;
+
+                              auto cmp = txn.add_compare();
+                              cmp->set_key(key);
+                              cmp->set_target(Compare::VERSION);
+                              cmp->set_result(Compare::EQUAL);
+                              cmp->set_version(version);
+
+                              auto requestOp_put = txn.add_success();
+                              requestOp_put->set_allocated_request_put(request);
+
+                              auto requestOp_get = txn.add_success();
+                              requestOp_get->set_allocated_request_range(get_request);
+
+                              auto requestOp_get_failure = txn.add_failure();
+                              requestOp_get_failure->set_allocated_request_range(get_request_failure);
+
+                              TxnResponse response;
+
+                              auto status = stub_->Txn(&context, txn, &response);
+                              if (!status.ok())
+                                  throw status.error_message();
+
+                              if (!response.succeeded())
+                                  return {response.mutable_responses(0)->release_response_range()
+                                                                       ->kvs(0).version(), false};
+
+                              return {response.mutable_responses(1)->release_response_range()->kvs(0).version(), true};
                           });
     }
 
@@ -171,23 +246,35 @@ public:
     }
 
 
-    // TODO: use version
-    std::future<void> erase(const std::string& key, int64_t version = 0)
+    std::future<void> erase(const std::string& key, int64_t version)
     {
         return std::async(std::launch::async,
-                          [this, key] {
+                          [this, key, version] {
                               grpc::ClientContext context;
 
-                              DeleteRangeRequest request;
-                              request.set_key(key);
+                              auto request = new DeleteRangeRequest();
+                              request->set_key(key);
 
-                              DeleteRangeResponse response;
+                              TxnRequest txn;
 
-                              auto status = stub_->DeleteRange(&context, request, &response);
+                              if (version >= int64_t(0)) {
+                                  auto cmp = txn.add_compare();
+                                  cmp->set_key(key);
+                                  cmp->set_target(Compare::CREATE);
+                                  cmp->set_result(Compare::GREATER);
+                                  cmp->set_create_revision(0);
+                              }
+
+                              auto requestOp = txn.add_success();
+                              requestOp->set_allocated_request_delete_range(request);
+
+                              TxnResponse response;
+
+                              auto status = stub_->Txn(&context, txn, &response);
                               if (!status.ok())
                                   throw status.error_message();
 
-                              if (!response.deleted())
+                              if (!response.succeeded())
                                   throw NoEntry{};
                           });
     }
