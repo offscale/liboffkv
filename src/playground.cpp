@@ -10,6 +10,12 @@
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
 
+#include <zk/client.hpp>
+#include <zk/error.hpp>
+#include <zk/multi.hpp>
+#include <zk/types.hpp>
+#include "operation.hpp"
+
 
 
 template <class T>
@@ -32,8 +38,32 @@ T get_result(const std::unique_ptr<grpc::ClientAsyncResponseReader<T>> reader, g
     throw std::runtime_error("Some problems");
 }
 
+zk::buffer zkbuf(const std::string& s) {
+    return {s.begin(), s.end()};
+}
+std::string zkstr(const zk::buffer& s) {
+    return {s.begin(), s.end()};
+}
+
 int main()
 {
+    zk::client client_ = zk::client::connect("zk://127.0.0.1:2181").get();
+
+    zk::multi_op* txn = new zk::multi_op  {
+        zk::op::set("be", zkbuf("mama")),
+        zk::op::set("re", zkbuf("mia"))
+    };
+    client_.commit(*txn).get();
+    delete txn;
+
+    const zk::get_result zk_res1 = client_.get("/be").get();
+    const zk::get_result zk_res2 = client_.get("/re").get();
+
+    std::cout << "ZK: " << zkstr(zk_res1.data()) << ' ' << zkstr(zk_res2.data()) << std::endl;
+
+
+
+    // ---- etcd ------
     grpc_init();
 
     std::shared_ptr<grpc::ClientContext> context = std::make_shared<grpc::ClientContext>();
