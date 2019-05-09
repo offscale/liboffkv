@@ -1,12 +1,43 @@
 #pragma once
 
+#include "config.h"
+
 #include <exception>
 #include <future>
 
+
+#ifdef ENABLE_ZK
+#include <zk/error.hpp>
+#define liboffkv_catch_zk \
+    catch (zk::error& e) {\
+        switch (e.code()) {\
+            case zk::error_code::no_entry:\
+                throw NoEntry{};\
+            case zk::error_code::entry_exists:\
+                throw EntryExists{};\
+            case zk::error_code::version_mismatch:\
+                throw e;\
+            default: \
+                throw e; \
+            /*default: __builtin_unreachable();\*/ \
+        }\
+    }
+#else
+#define liboffkv_catch_zk
+#endif
+
+#ifdef ENABLE_CONSUL
 #include <ppconsul/error.h>
 #include <ppconsul/kv.h>
-#include <zk/error.hpp>
-
+#define liboffkv_catch_consul \
+    catch (ppconsul::BadStatus& e) {\
+        throw e;\
+    } catch (ppconsul::kv::UpdateError& e) {\
+        throw e;\
+    }
+#else
+#define liboffkv_catch_consul
+#endif
 
 
 class InvalidAddress : public std::exception {
@@ -44,23 +75,7 @@ class EntryExists : public std::exception {
 };
 
 
-#define liboffkv_catch catch (zk::error& e) {\
-        switch (e.code()) {\
-            case zk::error_code::no_entry:\
-                throw NoEntry{};\
-            case zk::error_code::entry_exists:\
-                throw EntryExists{};\
-            case zk::error_code::version_mismatch:\
-                throw e;\
-            default: \
-                throw e; \
-            /*default: __builtin_unreachable();\*/ \
-        }\
-    } catch (ppconsul::BadStatus& e) {\
-        throw e;\
-    } catch (ppconsul::kv::UpdateError& e) {\
-        throw e;\
-    }
+#define liboffkv_catch liboffkv_catch_zk liboffkv_catch_consul
 
 
 template <class T>

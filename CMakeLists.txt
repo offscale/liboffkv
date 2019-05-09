@@ -12,22 +12,31 @@ message(STATUS ${ENABLE_ETCD})
 configure_file(lib/version.h.in generated/version.h @ONLY)
 configure_file(lib/config.h.in generated/config.h @ONLY)
 
-
-find_package(ppconsul REQUIRED)
-find_package(zkpp REQUIRED)
-find_package(etcdpp REQUIRED)
-find_package(gRPC CONFIG REQUIRED)
-
 find_package (Threads REQUIRED)
 link_libraries(${CMAKE_THREAD_LIBS_INIT})
 
 add_library(liboffkv INTERFACE)
 target_include_directories(liboffkv INTERFACE src)
 target_include_directories(liboffkv INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(liboffkv INTERFACE ppconsul)
-target_link_libraries(liboffkv INTERFACE zkpp)
-target_link_libraries(liboffkv INTERFACE etcdpp)
-target_link_libraries(liboffkv INTERFACE gRPC::gpr gRPC::grpc gRPC::grpc++ gRPC::grpc_cronet)
+
+if (${ENABLE_CONSUL})
+    find_package(ppconsul REQUIRED)
+    target_link_libraries(liboffkv INTERFACE ppconsul)
+endif()
+
+if (${ENABLE_ZK})
+    find_package(zkpp REQUIRED)
+    target_link_libraries(liboffkv INTERFACE zkpp)
+endif()
+
+if (${ENABLE_ETCD})
+    find_package(etcdpp REQUIRED)
+    find_package(gRPC CONFIG REQUIRED)
+
+    target_link_libraries(liboffkv INTERFACE etcdpp)
+    target_link_libraries(liboffkv INTERFACE gRPC::gpr gRPC::grpc gRPC::grpc++ gRPC::grpc_cronet)
+endif()
+
 
 add_executable(test_lib src/test.cpp)
 target_link_libraries(test_lib liboffkv)
