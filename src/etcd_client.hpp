@@ -11,8 +11,8 @@
 
 
 
-template <typename TimeMachine>
-class ETCDClient : public Client<TimeMachine> {
+template <typename ThreadPool>
+class ETCDClient : public Client<ThreadPool> {
 private:
     using KV = etcdserverpb::KV;
 
@@ -32,8 +32,8 @@ private:
 
 
 public:
-    ETCDClient(const std::string& address, std::shared_ptr<TimeMachine> tm)
-        : Client<TimeMachine>(address, std::move(tm)),
+    ETCDClient(const std::string& address, std::shared_ptr<ThreadPool> tm)
+        : Client<ThreadPool>(address, std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
           stub_(KV::NewStub(channel_))
     {}
@@ -44,7 +44,7 @@ public:
 
 
     ETCDClient(ETCDClient&& another)
-        : Client<TimeMachine>(std::move(another)),
+        : Client<ThreadPool>(std::move(another)),
           channel_(std::move(another.channel_)),
           stub_(KV::NewStub(channel_))
     {}
@@ -53,7 +53,7 @@ public:
     {
         channel_ = std::move(another.channel_);
         stub_ = KV::NewStub(channel_);
-        this->time_machine_ = std::move(another.time_machine_);
+        this->thread_pool_ = std::move(another.thread_pool_);
 
         return *this;
     }
@@ -64,7 +64,7 @@ public:
 
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, value, lease] {
                               grpc::ClientContext context;
 
@@ -100,7 +100,7 @@ public:
 
     std::future<ExistsResult> exists(const std::string& key) const
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key]() -> ExistsResult {
                               grpc::ClientContext context;
 
@@ -124,7 +124,7 @@ public:
 
     std::future<SetResult> set(const std::string& key, const std::string& value)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, value]() -> SetResult  {
                               grpc::ClientContext context;
 
@@ -168,7 +168,7 @@ public:
 
     std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, value, version]() -> CASResult  {
                               if (version < int64_t(0))
                                   return {set(key, value).get().version, true};
@@ -223,7 +223,7 @@ public:
 
     std::future<GetResult> get(const std::string& key) const
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key]() -> GetResult{
                               grpc::ClientContext context;
 
@@ -248,7 +248,7 @@ public:
 
     std::future<void> erase(const std::string& key, int64_t version)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, version] {
                               grpc::ClientContext context;
 
@@ -286,7 +286,7 @@ public:
     // TODO
     std::future<TransactionResult> commit(const Transaction& transaction)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, transaction]() -> TransactionResult {
                               try {
                                   return TransactionResult();

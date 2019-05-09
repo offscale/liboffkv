@@ -8,7 +8,7 @@
 
 
 
-auto tm = std::make_shared<time_machine::TimeMachine<>>();
+auto tm = std::make_shared<time_machine::ThreadPool<>>();
 
 void test_time_machine();
 
@@ -54,7 +54,7 @@ void test_client(std::unique_ptr<Client<TimeMachine>>&& client)
 
 void test_time_machine()
 {
-    time_machine::TimeMachine<std::promise, std::future> timeMachine;
+    time_machine::ThreadPool<std::promise, std::future> timeMachine;
 
     std::promise<int> a;
     timeMachine.then(timeMachine.then(a.get_future(), [](auto&& f) {

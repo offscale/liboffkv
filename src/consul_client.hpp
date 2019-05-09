@@ -4,13 +4,12 @@
 #include "ppconsul/consul.h"
 #include "ppconsul/kv.h"
 
-
 #include "client_interface.hpp"
 
 
 
-template <typename TimeMachine>
-class ConsulClient : public Client<TimeMachine> {
+template <typename ThreadPool>
+class ConsulClient : public Client<ThreadPool> {
 private:
     using Consul = ppconsul::Consul;
     using Kv = ppconsul::kv::Kv;
@@ -20,8 +19,8 @@ private:
     mutable std::mutex lock_;
 
 public:
-    ConsulClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
-        : Client<TimeMachine>(address, std::move(time_machine)),
+    ConsulClient(const std::string& address, std::shared_ptr<ThreadPool> time_machine)
+        : Client<ThreadPool>(address, std::move(time_machine)),
           client_(Consul(address)), kv_(std::make_unique<Kv>(client_))
     {}
 
@@ -36,7 +35,7 @@ public:
 
 
     ConsulClient(ConsulClient&& another)
-        : Client<TimeMachine>(std::move(another)),
+        : Client<ThreadPool>(std::move(another)),
           client_(std::move(another.client_)),
           kv_(std::make_unique<Kv>(client_))
     {}
@@ -45,7 +44,7 @@ public:
     {
         client_ = std::move(another.client_);
         kv_ = std::make_unique<Kv>(client_);
-        this->time_machine_ = std::move(another.time_machine_);
+        this->thread_pool_ = std::move(another.thread_pool_);
 
         return *this;
     }
@@ -55,7 +54,7 @@ public:
     // TODO in general: use transactions everywhere to check existance before update and so on atomically
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, value, lease] {
                               std::unique_lock lock(lock_);
                               try {
@@ -68,7 +67,7 @@ public:
 
     std::future<ExistsResult> exists(const std::string& key) const
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key]() -> ExistsResult {
                               std::unique_lock lock(lock_);
                               try {
@@ -80,7 +79,7 @@ public:
 
     std::future<SetResult> set(const std::string& key, const std::string& value)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, value]() -> SetResult {
                               std::unique_lock lock(lock_);
                               try {
@@ -91,7 +90,7 @@ public:
 
     std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key, value, version]() -> CASResult {
                               std::unique_lock lock(lock_);
                               try {
@@ -105,7 +104,7 @@ public:
 
     std::future<GetResult> get(const std::string& key) const
     {
-        return std::async(std::launch::async,
+        return this->thread_pool_->async(
                           [this, key]() -> GetResult {
                               std::unique_lock lock(lock_);
                               try {
@@ -119,7 +118,7 @@ public:
 
     std::future<void> erase(const std::string& key, int64_t version)
     {
-        std::async(std::launch::async,
+        return this->thread_pool_->async(
                    [this, key, version] {
                        std::unique_lock lock(lock_);
                        try {
@@ -138,6 +137,6 @@ public:
     // TODO
     std::future<TransactionResult> commit(const Transaction& transaction)
     {
-        return std::async(std::launch::async, [] { return TransactionResult(); });
+        return this->thread_pool_->async([] { return TransactionResult(); });
     }
 };

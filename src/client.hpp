@@ -13,7 +13,7 @@
 
 
 
-template <typename TimeMachine = time_machine::TimeMachine<>>
+template <typename TimeMachine = time_machine::ThreadPool<>>
 std::unique_ptr<Client<TimeMachine>> connect(const std::string& address,
                                              std::shared_ptr<TimeMachine> tm = nullptr)
 {

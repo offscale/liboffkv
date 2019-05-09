@@ -9,18 +9,18 @@
 
 
 
-template <typename TimeMachine>
+template <typename ThreadPool>
 class Client {
 protected:
-    std::shared_ptr <TimeMachine> time_machine_;
+    std::shared_ptr <ThreadPool> thread_pool_;
 
 public:
-    Client(const std::string&, std::shared_ptr <TimeMachine> time_machine = nullptr)
-        : time_machine_(time_machine == nullptr ? std::make_shared<TimeMachine>() : std::move(time_machine))
+    Client(const std::string&, std::shared_ptr <ThreadPool> time_machine = nullptr)
+        : thread_pool_(time_machine == nullptr ? std::make_shared<ThreadPool>() : std::move(time_machine))
     {}
 
     Client(Client&& another)
-        : time_machine_(std::move(another.time_machine_))
+        : thread_pool_(std::move(another.thread_pool_))
     {}
 
     Client() = default;

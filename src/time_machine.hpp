@@ -107,9 +107,9 @@ private:
 
 template <template <class> class Promise = std::promise,
     template <class> class Future  = std::future>
-class TimeMachine {
+class ThreadPool {
 public:
-    explicit TimeMachine(size_t number_of_threads = 1,
+    explicit ThreadPool(size_t number_of_threads = 1,
                          size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
         : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
     {
@@ -117,17 +117,17 @@ public:
             run_thread();
     }
 
-    TimeMachine(const TimeMachine&) = delete;
+    ThreadPool(const ThreadPool&) = delete;
 
-    TimeMachine(TimeMachine&& machine)
+    ThreadPool(ThreadPool&& machine)
         : queue_(std::move(machine.queue_)), state_(std::move(machine.state_)),
           objects_per_thread_(machine.objects_per_thread_),
           wait_for_object_ms_(machine.wait_for_object_ms_)
     {}
 
-    TimeMachine& operator=(const TimeMachine&) = delete;
+    ThreadPool& operator=(const ThreadPool&) = delete;
 
-    TimeMachine& operator=(TimeMachine&& machine)
+    ThreadPool& operator=(ThreadPool&& machine)
     {
         queue_ = std::move(machine.queue_);
         state_ = std::move(machine.state_);
@@ -215,7 +215,7 @@ public:
     }
 
 
-    ~TimeMachine()
+    ~ThreadPool()
     {
         if (queue_) {
             queue_->close();

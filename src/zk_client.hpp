@@ -12,8 +12,8 @@
 
 
 
-template <typename TimeMachine = time_machine::TimeMachine<>>
-class ZKClient : public Client<TimeMachine> {
+template <typename ThreadPool = time_machine::ThreadPool<>>
+class ZKClient : public Client<ThreadPool> {
 private:
     using buffer = zk::buffer;
     const static std::string KV_STORAGE_ZNODE;
@@ -40,8 +40,8 @@ private:
 
 
 public:
-    ZKClient(const std::string& address, std::shared_ptr<TimeMachine> time_machine)
-        : Client<TimeMachine>(address, std::move(time_machine)),
+    ZKClient(const std::string& address, std::shared_ptr<ThreadPool> time_machine)
+        : Client<ThreadPool>(address, std::move(time_machine)),
           client_(zk::client::connect(address).get())
     {
         client_.create(KV_STORAGE_ZNODE, buffer());
@@ -58,14 +58,14 @@ public:
 
 
     ZKClient(ZKClient&& another)
-        : Client<TimeMachine>(std::move(another)),
+        : Client<ThreadPool>(std::move(another)),
           client_(std::move(another.client_))
     {}
 
     ZKClient& operator=(ZKClient&& another)
     {
         client_ = std::move(another.client_);
-        this->time_machine_ = std::move(another.time_machine_);
+        this->thread_pool_ = std::move(another.thread_pool_);
 
         return *this;
     }
@@ -73,7 +73,7 @@ public:
 
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
     {
-        return this->time_machine_->then(
+        return this->thread_pool_->then(
             client_.create(
                 get_path(key),
                 from_string(value),
@@ -85,7 +85,7 @@ public:
 
     std::future<ExistsResult> exists(const std::string& key) const
     {
-        return this->time_machine_->then(client_.exists(get_path(key)),
+        return this->thread_pool_->then(client_.exists(get_path(key)),
                                          [](std::future<zk::exists_result>&& result) -> ExistsResult {
                                              zk::exists_result unwrapped = call_get(std::move(result));
                                              auto stat = unwrapped.stat();
@@ -100,8 +100,8 @@ public:
     {
         auto path = get_path(key);
 
-        return this->time_machine_->then(
-            this->time_machine_->then(
+        return this->thread_pool_->then(
+            this->thread_pool_->then(
                 client_.create(path, from_string(value)),
                 [](std::future<zk::create_result>&& res) -> SetResult {
                     call_get(std::move(res));
@@ -112,7 +112,7 @@ public:
                 try {
                     return call_get(std::move(set_res_future));
                 } catch (EntryExists&) {
-                    return call_get(this->time_machine_->then(
+                    return call_get(this->thread_pool_->then(
                         client_.set(path, from_string(value)),
                         [path](std::future<zk::set_result>&& result) -> SetResult {
                             return {call_get(std::move(result)).stat().data_version.value};
@@ -127,20 +127,20 @@ public:
     std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
     {
         if (version < int64_t(0))
-            return this->time_machine_->then(set(key, value), [](std::future<SetResult>&& set_result) -> CASResult {
+            return this->thread_pool_->then(set(key, value), [](std::future<SetResult>&& set_result) -> CASResult {
                 return {call_get(std::move(set_result)).version, true};
             });
 
         auto path = get_path(key);
 
         if (!version) {
-            return this->time_machine_->then(create(key, value),
+            return this->thread_pool_->then(create(key, value),
                                              [this, path, value](std::future<void>&& res) -> CASResult {
                                                  try {
                                                      call_get(std::move(res));
                                                      return {0, true};
                                                  } catch (EntryExists&) {
-                                                     return call_get(this->time_machine_->then(
+                                                     return call_get(this->thread_pool_->then(
                                                          client_.set(path, from_string(value), zk::version(0)),
                                                          [](std::future<zk::set_result>&& result) -> CASResult {
                                                              try {
@@ -159,7 +159,7 @@ public:
                                                  }
                                              });
         }
-        return this->time_machine_->then(
+        return this->thread_pool_->then(
             client_.set(get_path(key), from_string(value), zk::version(version)),
             [version](std::future<zk::set_result>&& result) -> CASResult {
                 try {
@@ -176,7 +176,7 @@ public:
 
     std::future<GetResult> get(const std::string& key) const
     {
-        return this->time_machine_->then(
+        return this->thread_pool_->then(
             client_.get(get_path(key)),
             [](std::future<zk::get_result>&& result) -> GetResult {
                 auto res = call_get(std::move(result));
@@ -190,8 +190,8 @@ public:
         auto path = get_path(key);
 
         if (version < int64_t(0))
-            return this->time_machine_->then(client_.erase(path), call_get<void>);
-        return this->time_machine_->then(client_.erase(path, zk::version(version)), call_get<void>);
+            return this->thread_pool_->then(client_.erase(path), call_get<void>);
+        return this->thread_pool_->then(client_.erase(path, zk::version(version)), call_get<void>);
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction)
@@ -225,7 +225,7 @@ public:
             }
         };
 
-        return this->time_machine_->then(client_.commit(trn), [](std::future<zk::multi_result>&& multi_res) {
+        return this->thread_pool_->then(client_.commit(trn), [](std::future<zk::multi_result>&& multi_res) {
             TransactionResult result;
 
             auto multi_res_unwrapped = call_get(std::move(multi_res));
