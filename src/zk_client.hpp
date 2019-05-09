@@ -16,7 +16,6 @@ template <typename ThreadPool = time_machine::ThreadPool<>>
 class ZKClient : public Client<ThreadPool> {
 private:
     using buffer = zk::buffer;
-    const static std::string KV_STORAGE_ZNODE;
 
     static
     buffer from_string(const std::string& str)
@@ -30,21 +29,22 @@ private:
         return {buf.begin(), buf.end()};
     }
 
-    static
-    std::string get_path(const std::string& key)
+    std::string get_path(const std::string& key) const
     {
-        return KV_STORAGE_ZNODE + key;
+        return prefix_ + key;
     }
 
     zk::client client_;
-
+    const std::string prefix_;
 
 public:
-    ZKClient(const std::string& address, std::shared_ptr<ThreadPool> time_machine)
+    ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client<ThreadPool>(address, std::move(time_machine)),
-          client_(zk::client::connect(address).get())
+          client_(zk::client::connect(address).get()),
+          prefix_(prefix)
     {
-        client_.create(KV_STORAGE_ZNODE, buffer());
+        // TODO: create parents of prefix
+        client_.create(prefix, buffer());
     }
 
     ZKClient() = delete;
@@ -252,7 +252,3 @@ public:
         });
     }
 };
-
-
-template <typename TimeMachine>
-const std::string ZKClient<TimeMachine>::KV_STORAGE_ZNODE = "/__KV__";

@@ -15,10 +15,10 @@ void test_time_machine();
 template <typename TimeMachine>
 void test_client(std::unique_ptr<Client<TimeMachine>>&& client)
 {
-    client->create("key", "value").get();
-    auto version = client->set("key", "valueqq").get().version;
+    client->create("/key", "value").get();
+    auto version = client->set("/key", "valueqq").get().version;
 
-    tm->then(client->cas("key", "value1", 111), [](auto&& cas_result) {
+    tm->then(client->cas("/key", "value1", 111), [](auto&& cas_result) {
         auto result = cas_result.get();
         if (!!result) {
             std::cout << "cas finished successfully! new key's version: " << result.version << std::endl;
@@ -27,9 +27,9 @@ void test_client(std::unique_ptr<Client<TimeMachine>>&& client)
         }
     }).wait();
 
-    std::cerr << client->get("key").get().value << std::endl;
+    std::cerr << client->get("/key").get().value << std::endl;
 
-    tm->then(client->cas("key", "value1", version), [version](auto&& cas_result) {
+    tm->then(client->cas("/key", "value1", version), [version](auto&& cas_result) {
         auto result = cas_result.get();
         if (!!result) {
             std::cout << "cas finished successfully! new key's version: " << result.version << std::endl;
@@ -38,9 +38,9 @@ void test_client(std::unique_ptr<Client<TimeMachine>>&& client)
         }
     }).wait();
 
-    std::cerr << client->get("key").get().value << std::endl;
+    std::cerr << client->get("/key").get().value << std::endl;
 
-    client->erase("key").get()/* doesn't work for consul !!*/;
+    client->erase("/key").get()/* doesn't work for consul !!*/;
 
 //    client->commit(
 //    {
@@ -104,9 +104,8 @@ void test_path_parse()
 int main()
 {
 //    test_path_parse();
-    test_client(connect("zk://127.0.0.1:2181", tm));
-    test_client(connect("etcd://127.0.0.1:2379", tm));
-//    test_client(connect("consul://127.0.0.1:8500", tm));
+    test_client(connect("zk://127.0.0.1:2181", "", tm));
+    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
     test_time_machine();
 }

@@ -17,6 +17,10 @@
 #include "operation.hpp"
 
 
+#include <ppconsul/consul.h>
+#include <ppconsul/kv.h>
+
+
 
 template <class T>
 T get_result(const std::unique_ptr<grpc::ClientAsyncResponseReader<T>> reader, grpc::CompletionQueue& queue, int k)
@@ -47,6 +51,18 @@ std::string zkstr(const zk::buffer& s) {
 
 int main()
 {
+    // ---- consul -----
+    ppconsul::Consul consul("127.0.0.1:8500");
+    ppconsul::kv::Kv kv(consul, ppconsul::kw::consistency=ppconsul::Consistency::Consistent);
+    
+    kv.set("superkey", "value");
+    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
+    
+    kv.erase("superkey");
+    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
+
+    return 0;
+    // ---- zk -----
     zk::client client_ = zk::client::connect("zk://127.0.0.1:2181").get();
 
     zk::multi_op* txn = new zk::multi_op  {

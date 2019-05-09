@@ -32,7 +32,7 @@ private:
 
 
 public:
-    ETCDClient(const std::string& address, std::shared_ptr<ThreadPool> tm)
+    ETCDClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> tm)
         : Client<ThreadPool>(address, std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
           stub_(KV::NewStub(channel_))

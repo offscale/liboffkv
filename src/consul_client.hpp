@@ -19,7 +19,7 @@ private:
     mutable std::mutex lock_;
 
 public:
-    ConsulClient(const std::string& address, std::shared_ptr<ThreadPool> time_machine)
+    ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client<ThreadPool>(address, std::move(time_machine)),
           client_(Consul(address)), kv_(std::make_unique<Kv>(client_))
     {}
