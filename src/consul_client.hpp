@@ -21,7 +21,8 @@ private:
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client<ThreadPool>(address, std::move(time_machine)),
-          client_(Consul(address)), kv_(std::make_unique<Kv>(client_))
+          client_(Consul(address)),
+          kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency=ppconsul::Consistency::Consistent))
     {}
 
     ConsulClient() = delete;
