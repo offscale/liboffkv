@@ -1,0 +1,10 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#include <version.h>
+
+#cmakedefine ENABLE_ZK
+#cmakedefine ENABLE_ETCD
+#cmakedefine ENABLE_CONSUL
+
+#endif
