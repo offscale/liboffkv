@@ -52,32 +52,32 @@ std::string zkstr(const zk::buffer& s) {
 int main()
 {
     // ---- consul -----
-    ppconsul::Consul consul("127.0.0.1:8500");
-    ppconsul::kv::Kv kv(consul, ppconsul::kw::consistency=ppconsul::Consistency::Consistent);
-    
-    kv.set("superkey", "value");
-    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
-    
-    kv.erase("superkey");
-    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
+//    ppconsul::Consul consul("127.0.0.1:8500");
+//    ppconsul::kv::Kv kv(consul, ppconsul::kw::consistency=ppconsul::Consistency::Consistent);
+//    
+//    kv.set("superkey", "value");
+//    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
+//    
+//    kv.erase("superkey");
+//    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
+//
+//    return 0;
 
-    return 0;
+
     // ---- zk -----
     zk::client client_ = zk::client::connect("zk://127.0.0.1:2181").get();
 
-    zk::multi_op* txn = new zk::multi_op  {
-        zk::op::set("be", zkbuf("mama")),
-        zk::op::set("re", zkbuf("mia"))
+    zk::multi_op txn = {
+        zk::op::create("/mix", zkbuf("mama")),
+        zk::op::create("/mix/huaro", zkbuf("mia"))
     };
-    client_.commit(*txn).get();
-    delete txn;
+    const zk::multi_result txn_res1 = client_.commit(txn).get();
+    const zk::multi_result txn_res2 = client_.commit(txn).get();
+      
 
-    const zk::get_result zk_res1 = client_.get("/be").get();
-    const zk::get_result zk_res2 = client_.get("/re").get();
-
-    std::cout << "ZK: " << zkstr(zk_res1.data()) << ' ' << zkstr(zk_res2.data()) << std::endl;
-
-
+//    std::cout << "ZK: " << zkstr(zk_res1.data()) << ' ' << zkstr(zk_res2.data()) << std::endl;
+    
+    return 0;
 
     // ---- etcd ------
     grpc_init();
