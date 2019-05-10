@@ -43,14 +43,11 @@ public:
           client_(zk::client::connect(address).get()),
           prefix_(prefix)
     {
-        std::vector<std::string> entries = get_entry_sequence(prefix);
-        for (int i = 0; i < entries.size(); ++i) {
-            if (i != 0)
-                entries[i] = entries[i - 1] + entries[i];
-
+        const std::vector<std::string> entries = get_entry_sequence(prefix);
+        for (const auto& e : entries) {
             // start all operations asynchronously
             // because ZK guarantees sequential consistency
-            client_.create(entries[0], buffer());
+            client_.create(e, buffer());
         }
     }
 
