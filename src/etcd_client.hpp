@@ -11,8 +11,7 @@
 
 
 
-template <typename ThreadPool>
-class ETCDClient : public Client<ThreadPool> {
+class ETCDClient : public Client {
 private:
     using KV = etcdserverpb::KV;
 
@@ -33,7 +32,7 @@ private:
 
 public:
     ETCDClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> tm)
-        : Client<ThreadPool>(address, std::move(tm)),
+        : Client(address, std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
           stub_(KV::NewStub(channel_))
     {}
@@ -44,7 +43,7 @@ public:
 
 
     ETCDClient(ETCDClient&& another)
-        : Client<ThreadPool>(std::move(another)),
+        : Client(std::move(another)),
           channel_(std::move(another.channel_)),
           stub_(KV::NewStub(channel_))
     {}

@@ -12,8 +12,7 @@
 
 
 
-template <typename ThreadPool = time_machine::ThreadPool<>>
-class ZKClient : public Client<ThreadPool> {
+class ZKClient : public Client {
 private:
     using buffer = zk::buffer;
 
@@ -39,7 +38,7 @@ private:
 
 public:
     ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client<ThreadPool>(address, std::move(time_machine)),
+        : Client(address, std::move(time_machine)),
           client_(zk::client::connect(address).get()),
           prefix_(prefix)
     {
@@ -58,7 +57,7 @@ public:
 
 
     ZKClient(ZKClient&& another)
-        : Client<ThreadPool>(std::move(another)),
+        : Client(std::move(another)),
           client_(std::move(another.client_))
     {}
 

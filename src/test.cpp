@@ -12,8 +12,7 @@ auto tm = std::make_shared<time_machine::ThreadPool<>>();
 
 void test_time_machine();
 
-template <typename TimeMachine>
-void test_client(std::unique_ptr<Client<TimeMachine>>&& client)
+void test_client(std::unique_ptr<Client>&& client)
 {
     client->create("/key", "value").get();
     auto version = client->set("/key", "valueqq").get().version;

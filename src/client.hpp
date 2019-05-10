@@ -22,25 +22,24 @@
 
 
 
-template <typename ThreadPool = time_machine::ThreadPool<>>
-std::unique_ptr<Client<ThreadPool>> connect(const std::string& address, const std::string& prefix="",
-                                             std::shared_ptr<ThreadPool> tm = nullptr)
+std::unique_ptr<Client> connect(const std::string& address, const std::string& prefix="",
+                                             std::shared_ptr<time_machine::ThreadPool<>> tm = nullptr)
 {
     auto [protocol, host_port] = get_protocol_address(address);
 
 #ifdef ENABLE_ZK
     if (protocol == "zk")
-        return std::make_unique<ZKClient<ThreadPool>>(protocol + "://" + host_port, prefix, std::move(tm));
+        return std::make_unique<ZKClient>(protocol + "://" + host_port, prefix, std::move(tm));
 #endif
 
 #ifdef ENABLE_CONSUL
     if (protocol == "consul")
-        return std::make_unique<ConsulClient<ThreadPool>>(host_port, prefix, std::move(tm));
+        return std::make_unique<ConsulClient>(host_port, prefix, std::move(tm));
 #endif
 
 #ifdef ENABLE_ETCD
     if (protocol == "etcd")
-        return std::make_unique<ETCDClient<ThreadPool>>(host_port, prefix, std::move(tm));
+        return std::make_unique<ETCDClient>(host_port, prefix, std::move(tm));
 #endif
 
     throw InvalidAddress{};
