@@ -9,6 +9,7 @@
 #include "client_interface.hpp"
 #include "time_machine.hpp"
 #include "util.hpp"
+#include "key.hpp"
 
 
 
@@ -34,7 +35,7 @@ private:
     }
 
     zk::client client_;
-    const std::string prefix_;
+    std::string prefix_;
 
 public:
     ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
@@ -42,8 +43,15 @@ public:
           client_(zk::client::connect(address).get()),
           prefix_(prefix)
     {
-        // TODO: create parents of prefix
-        client_.create(prefix, buffer());
+        std::vector<std::string> entries = get_entry_sequence(prefix);
+        for (int i = 0; i < entries.size(); ++i) {
+            if (i != 0)
+                entries[i] = entries[i - 1] + entries[i];
+
+            // start all operations asynchronously
+            // because ZK guarantees sequential consistency
+            client_.create(entries[0], buffer());
+        }
     }
 
     ZKClient() = delete;
@@ -53,24 +61,26 @@ public:
     ZKClient& operator=(const ZKClient&) = delete;
 
 
-    ~ZKClient() = default;
+    ~ZKClient() override = default;
 
 
     ZKClient(ZKClient&& another)
         : Client(std::move(another)),
-          client_(std::move(another.client_))
+          client_(std::move(another.client_)),
+          prefix_(std::move(another.prefix_))
     {}
 
     ZKClient& operator=(ZKClient&& another)
     {
         client_ = std::move(another.client_);
-        this->thread_pool_ = std::move(another.thread_pool_);
+        thread_pool_ = std::move(another.thread_pool_);
+        prefix_ = std::move(another.prefix_);
 
         return *this;
     }
 
 
-    std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
+    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return this->thread_pool_->then(
             client_.create(
@@ -82,20 +92,23 @@ public:
         );
     }
 
-    std::future<ExistsResult> exists(const std::string& key) const
+    std::future<ExistsResult> exists(const std::string& key) const override
     {
-        return this->thread_pool_->then(client_.exists(get_path(key)),
-                                         [](std::future<zk::exists_result>&& result) -> ExistsResult {
-                                             zk::exists_result unwrapped = call_get(std::move(result));
-                                             auto stat = unwrapped.stat();
+        return thread_pool_->then(
+            client_.exists(get_path(key)),
+            [](std::future<zk::exists_result>&& result) -> ExistsResult {
+                zk::exists_result unwrapped = call_get(std::move(result));
+                auto stat = unwrapped.stat();
 
-                                             return {stat.has_value()
-                                                     ? static_cast<int64_t>(stat.value().data_version.value) : -1,
-                                                     !!unwrapped};
-                                         });
+                return {stat.has_value()
+                        ? static_cast<int64_t>(stat.value().data_version.value + 1) : 0,
+                        !!unwrapped};
+            });
     }
 
-    std::future<SetResult> set(const std::string& key, const std::string& value)
+
+    // TODO: hierarchy, atomicity
+    std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
         auto path = get_path(key);
 
@@ -114,7 +127,7 @@ public:
                     return call_get(this->thread_pool_->then(
                         client_.set(path, from_string(value)),
                         [path](std::future<zk::set_result>&& result) -> SetResult {
-                            return {call_get(std::move(result)).stat().data_version.value};
+                            return {call_get(std::move(result)).stat().data_version.value + 1};
                         },
                         true
                     ));
@@ -123,7 +136,8 @@ public:
         );
     }
 
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
+    // TODO: hierarchy, atomicity, fix versions
+    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version) override
     {
         if (version < int64_t(0))
             return this->thread_pool_->then(set(key, value), [](std::future<SetResult>&& set_result) -> CASResult {
@@ -133,30 +147,31 @@ public:
         auto path = get_path(key);
 
         if (!version) {
-            return this->thread_pool_->then(create(key, value),
-                                             [this, path, value](std::future<void>&& res) -> CASResult {
-                                                 try {
-                                                     call_get(std::move(res));
-                                                     return {0, true};
-                                                 } catch (EntryExists&) {
-                                                     return call_get(this->thread_pool_->then(
-                                                         client_.set(path, from_string(value), zk::version(0)),
-                                                         [](std::future<zk::set_result>&& result) -> CASResult {
-                                                             try {
-                                                                 return {static_cast<int64_t>(
-                                                                         call_get(std::move(result)).stat()
-                                                                                                    .data_version
-                                                                                                    .value), true};
-                                                             } catch (zk::error& e) {
-                                                                 if (e.code() == zk::error_code::version_mismatch) {
-                                                                     // TODO: return real key's version instead of -1
-                                                                     return {-1, false};
-                                                                 }
-                                                                 throw e;
-                                                             }
-                                                         }));
-                                                 }
-                                             });
+            return this->thread_pool_->then(
+                create(key, value),
+                [this, path, value](std::future<void>&& res) -> CASResult {
+                    try {
+                        call_get(std::move(res));
+                        return {0, true};
+                    } catch (EntryExists&) {
+                        return call_get(this->thread_pool_->then(
+                            client_.set(path, from_string(value), zk::version(0)),
+                            [](std::future<zk::set_result>&& result) -> CASResult {
+                                try {
+                                    return {static_cast<int64_t>(
+                                                call_get(std::move(result)).stat()
+                                                    .data_version
+                                                    .value), true};
+                                } catch (zk::error& e) {
+                                    if (e.code() == zk::error_code::version_mismatch) {
+                                        // TODO: return real key's version instead of -1
+                                        return {-1, false};
+                                    }
+                                    throw e;
+                                }
+                            }));
+                    }
+                });
         }
         return this->thread_pool_->then(
             client_.set(get_path(key), from_string(value), zk::version(version)),
@@ -173,24 +188,24 @@ public:
             });
     }
 
-    std::future<GetResult> get(const std::string& key) const
+    std::future<GetResult> get(const std::string& key) const override
     {
-        return this->thread_pool_->then(
+        return thread_pool_->then(
             client_.get(get_path(key)),
             [](std::future<zk::get_result>&& result) -> GetResult {
                 auto res = call_get(std::move(result));
-                return {res.stat().data_version.value, to_string(res.data())};
+                return {res.stat().data_version.value + 1, to_string(res.data())};
             }
         );
     }
 
-    std::future<void> erase(const std::string& key, int64_t version)
+    std::future<void> erase(const std::string& key, int64_t version = -1) override
     {
         auto path = get_path(key);
 
         if (version < int64_t(0))
-            return this->thread_pool_->then(client_.erase(path), call_get<void>);
-        return this->thread_pool_->then(client_.erase(path, zk::version(version)), call_get<void>);
+            return thread_pool_->then(client_.erase(path), call_get_ignore_noexcept<void>);
+        return thread_pool_->then(client_.erase(path, zk::version(version - 1)), call_get_ignore_noexcept<void>);
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction)

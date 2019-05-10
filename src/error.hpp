@@ -6,8 +6,13 @@
 #include <future>
 
 
+
 #ifdef ENABLE_ZK
+
 #include <zk/error.hpp>
+
+
+
 #define liboffkv_catch_zk \
     catch (zk::error& e) {\
         switch (e.code()) {\
@@ -27,8 +32,12 @@
 #endif
 
 #ifdef ENABLE_CONSUL
+
 #include <ppconsul/error.h>
 #include <ppconsul/kv.h>
+
+
+
 #define liboffkv_catch_consul \
     catch (ppconsul::BadStatus& e) {\
         throw e;\
@@ -79,7 +88,7 @@ class EntryExists : public std::exception {
 
 
 template <class T>
-T call_get(std::future <T>&& future)
+T call_get(std::future<T>&& future)
 {
     try {
         return future.get();
@@ -87,9 +96,17 @@ T call_get(std::future <T>&& future)
 }
 
 template <class T>
-void call_get_ignore(std::future <T>&& future)
+void call_get_ignore(std::future<T>&& future)
 {
     try {
         future.get();
     } liboffkv_catch
+}
+
+template <class T>
+void call_get_ignore_noexcept(std::future<T>&& future)
+{
+    try {
+        future.get();
+    } catch (...) {}
 }
