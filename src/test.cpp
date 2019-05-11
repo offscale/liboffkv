@@ -14,6 +14,10 @@ void test_time_machine();
 
 void test_client(std::unique_ptr<Client>&& client)
 {
+    try {
+        client->erase("/key").get();
+    } catch (...) {}
+
     client->create("/key", "value").get();
     auto version = client->set("/key", "valueqq").get().version;
 
@@ -104,7 +108,8 @@ int main()
 {
 //    test_path_parse();
     test_client(connect("zk://127.0.0.1:2181", "", tm));
-    test_client(connect("etcd://127.0.0.1:2379", "", tm));
+    test_client(connect("zk://127.0.0.1:2181", "/test/the/prefix", tm));
+//    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
     test_time_machine();
 }

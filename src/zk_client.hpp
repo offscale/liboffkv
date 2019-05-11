@@ -43,11 +43,13 @@ public:
           client_(zk::client::connect(address).get()),
           prefix_(prefix)
     {
-        const std::vector<std::string> entries = get_entry_sequence(prefix);
-        for (const auto& e : entries) {
-            // start all operations asynchronously
-            // because ZK guarantees sequential consistency
-            client_.create(e, buffer());
+        if (!prefix.empty()) {
+            const std::vector<std::string> entries = get_entry_sequence(prefix);
+            for (const auto& e : entries) {
+                // start all operations asynchronously
+                // because ZK guarantees sequential consistency
+                client_.create(e, buffer());
+            }
         }
     }
 
@@ -112,7 +114,7 @@ public:
 
         return thread_pool_->then(
             client_.create(path, from_string(value)),
-            [this, &path, &value](std::future<zk::create_result>&& res) -> SetResult {
+            [this, path, value](std::future<zk::create_result>&& res) -> SetResult {
                 try {
                     call_get(std::move(res));
                     return {1};
@@ -176,7 +178,7 @@ public:
         return thread_pool_->then(
             thread_pool_->then(
                 client_.set(get_path(key), from_string(value), zk::version(version - 1)),
-                [this, version, &path](std::future<zk::set_result>&& result) -> CASResult {
+                [this, version, path](std::future<zk::set_result>&& result) -> CASResult {
                     try {
                         return {static_cast<int64_t>(result.get().stat().data_version.value + 1), true};
                     } catch (zk::error& e) {
@@ -189,7 +191,8 @@ public:
                                 [version](std::future<zk::get_result>&& result) -> CASResult {
                                     try {
                                         return {
-                                            static_cast<int64_t>(call_get(std::move(result)).stat().data_version.value + 1),
+                                            static_cast<int64_t>(call_get(std::move(result)).stat().data_version.value +
+                                                                 1),
                                             false
                                         };
                                     } catch (zk::error& e) {
