@@ -20,9 +20,9 @@ bool verify_unit(const std::string& unit)
  *
  * throws InvalidKey if key is incorrect
  */
-std::vector <std::string> get_entry_sequence(const std::string& key)
+std::vector<std::string> get_entry_sequence(const std::string& key)
 {
-    std::vector <std::string> ans;
+    std::vector<std::string> ans;
     if (key.size() < 2 || key[0] != '/')
         throw InvalidKey{};
 

@@ -2,16 +2,16 @@
 
 #include <future>
 
-
+#include "time_machine.hpp"
 #include "operation.hpp"
 #include "result.hpp"
 #include "util.hpp"
 
 
 
-template <typename ThreadPool>
 class Client {
 protected:
+    using ThreadPool = time_machine::ThreadPool<>;
     std::shared_ptr <ThreadPool> thread_pool_;
     std::string address_;
 
