@@ -100,7 +100,7 @@ public:
                 auto stat = unwrapped.stat();
 
                 return {stat.has_value()
-                        ? static_cast<int64_t>(stat.value().data_version.value + 1) : 0,
+                        ? static_cast<uint64_t>(stat.value().data_version.value + 1) : 0,
                         !!unwrapped};
             });
     }
@@ -123,13 +123,13 @@ public:
                         client_.set(path, from_string(value)),
                         [path](std::future<zk::set_result>&& result) -> SetResult {
                             try {
-                                return {call_get(std::move(result)).stat().data_version.value + 1};
+                                return {static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1)};
                             } catch (NoEntry&) {
                                 // concurrent remove happened
                                 // but set must not throw NoEntry
                                 // hm, we don't know real version
                                 // doesn't matter, return some large number instead
-                                return {static_cast<int64_t>(1) << 63};
+                                return {static_cast<uint64_t>(1) << 63};
                             }
                         },
                         true
@@ -140,7 +140,7 @@ public:
     }
 
     // Same as set: transactions aren't necessary
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version) override
+    std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
         auto path = get_path(key);
 
@@ -157,14 +157,14 @@ public:
                             [](std::future<zk::get_result>&& result) -> CASResult {
                                 try {
                                     return {
-                                        static_cast<int64_t>(call_get(std::move(result)).stat().data_version.value + 1),
+                                        static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1),
                                         false
                                     };
                                 } catch (NoEntry&) {
                                     // concurrent remove happened
                                     // cas with zero version must not throw NoEntry
                                     return {
-                                        static_cast<int64_t>(1) << 63,
+                                        static_cast<uint64_t>(1) << 63,
                                         false
                                     };
                                 }
@@ -180,7 +180,7 @@ public:
                 client_.set(get_path(key), from_string(value), zk::version(version - 1)),
                 [this, version, path](std::future<zk::set_result>&& result) -> CASResult {
                     try {
-                        return {static_cast<int64_t>(result.get().stat().data_version.value + 1), true};
+                        return {static_cast<uint64_t>(result.get().stat().data_version.value + 1), true};
                     } catch (zk::error& e) {
                         if (e.code() == zk::error_code::no_entry) {
                             return {0, false};
@@ -191,14 +191,13 @@ public:
                                 [version](std::future<zk::get_result>&& result) -> CASResult {
                                     try {
                                         return {
-                                            static_cast<int64_t>(call_get(std::move(result)).stat().data_version.value +
-                                                                 1),
+                                            static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1),
                                             false
                                         };
                                     } catch (zk::error& e) {
                                         if (e.code() == zk::error_code::no_entry) {
                                             return {
-                                                static_cast<int64_t>(1) << 63,
+                                                static_cast<uint64_t>(1) << 63,
                                                 false
                                             };
                                         }
@@ -222,16 +221,16 @@ public:
             client_.get(get_path(key)),
             [](std::future<zk::get_result>&& result) -> GetResult {
                 auto res = call_get(std::move(result));
-                return {res.stat().data_version.value + 1, to_string(res.data())};
+                return {static_cast<uint64_t>(res.stat().data_version.value + 1), to_string(res.data())};
             }
         );
     }
 
-    std::future<void> erase(const std::string& key, int64_t version = -1) override
+    std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         auto path = get_path(key);
 
-        if (version < int64_t(0))
+        if (version == uint64_t(0))
             return thread_pool_->then(client_.erase(path), call_get_ignore_noexcept<void>);
         return thread_pool_->then(client_.erase(path, zk::version(version - 1)), call_get_ignore_noexcept<void>);
     }
@@ -280,7 +279,7 @@ public:
                     case zk::op_type::set:
                         result.emplace_back(op::op_type::SET,
                                             std::make_shared<SetResult>(SetResult{
-                                                res.as_set().stat().data_version.value
+                                                static_cast<uint64_t>(res.as_set().stat().data_version.value)
                                             }));
                         break;
                     case zk::op_type::check:

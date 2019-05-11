@@ -1,3 +1,5 @@
+#include <utility>
+
 #pragma once
 
 #include <string>
@@ -8,7 +10,7 @@
 
 
 struct Result {
-    int64_t version = 0;
+    uint64_t version = 0;
 };
 
 
@@ -59,15 +61,15 @@ class TransactionResult {
 private:
     struct OperationResult {
         op::op_type type;
-        std::shared_ptr <Result> result;
+        std::shared_ptr<Result> result;
 
-        OperationResult(op::op_type type, std::shared_ptr <Result> result)
-            : type(type), result(result)
+        OperationResult(op::op_type type, std::shared_ptr<Result> result)
+            : type(type), result(std::move(result))
         {}
     };
 
 
-    std::vector <OperationResult> op_results_;
+    std::vector<OperationResult> op_results_;
 
 public:
     TransactionResult()
