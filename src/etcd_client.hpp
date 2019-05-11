@@ -8,6 +8,7 @@
 
 
 #include "client_interface.hpp"
+#include "key.hpp"
 
 
 
@@ -41,22 +42,8 @@ public:
     ETCDClient() = delete;
     ETCDClient(const ETCDClient&) = delete;
     ETCDClient& operator=(const ETCDClient&) = delete;
-
-
-    ETCDClient(ETCDClient&& another)
-        : Client<ThreadPool>(std::move(another)),
-          channel_(std::move(another.channel_)),
-          stub_(KV::NewStub(channel_))
-    {}
-
-    ETCDClient& operator=(ETCDClient&& another)
-    {
-        channel_ = std::move(another.channel_);
-        stub_ = KV::NewStub(channel_);
-        this->thread_pool_ = std::move(another.thread_pool_);
-
-        return *this;
-    }
+    ETCDClient(ETCDClient&&) = delete;
+    ETCDClient& operator=(ETCDClient&&) = delete;
 
 
     ~ETCDClient() = default;
@@ -66,25 +53,42 @@ public:
     {
         return this->thread_pool_->async(
                           [this, key, value, lease] {
+                              auto entries = get_entry_sequence(key);
                               grpc::ClientContext context;
-
-                              // put request
-                              auto request = new PutRequest();
-                              request->set_key(key);
-                              request->set_value(value);
-                              request->set_lease(lease);
 
                               TxnRequest txn;
 
-                              // put condition: entry exists iff its create_revision > 0
+                              // check that parent exists
+                              if (entries.size() >= 2) {
+                                  auto cmp = txn.add_compare();
+                                  cmp->set_key(entries[entries.size() - 2]);
+                                  cmp->set_target(Compare::CREATE);
+                                  cmp->set_result(Compare::GREATER);
+                                  cmp->set_create_revision(0);
+                              }
+
+                              // check that entry to be created does not exist
                               auto cmp = txn.add_compare();
                               cmp->set_key(key);
                               cmp->set_target(Compare::CREATE);
                               cmp->set_result(Compare::EQUAL);
                               cmp->set_create_revision(0);
 
-                              auto requestOp = txn.add_success();
-                              requestOp->set_allocated_request_put(request);
+                              // on success: put value
+                              // put request
+                              auto request = new PutRequest();
+                              request->set_key(key);
+                              request->set_value(value);
+                              request->set_lease(lease);
+
+                              auto requestOp_put = txn.add_success();
+                              requestOp_put->set_allocated_request_put(request);
+
+                              // on failure: get request to determine the kind of error
+                              auto get_request_failure = new RangeRequest();
+                              get_request_failure->set_key(key);
+                              get_request->set_limit(1);
+
 
                               TxnResponse response;
 
@@ -92,8 +96,13 @@ public:
                               if (!status.ok())
                                   throw status.error_message();
 
-                              if (!response.succeeded())
-                                  throw EntryExists{};
+                              if (!response.succeeded()) {
+                                  if (response.mutable_responses(0)->release_response_range()->kvs_size()) {
+                                      throw EntryExists{};
+                                  }
+                                  // if compare failed but key does not exist the parent has to not exist
+                                  throw NoEntry{};
+                              }
                           });
     }
 
@@ -126,28 +135,33 @@ public:
     {
         return this->thread_pool_->async(
                           [this, key, value]() -> SetResult  {
+                              auto entries = get_entry_sequence(key);
                               grpc::ClientContext context;
 
+                              TxnRequest txn;
+
+                              // check that parent exists
+                              if (entries.size() >= 2) {
+                                  auto cmp = txn.add_compare();
+                                  cmp->set_key(entries[entries.size() - 2]);
+                                  cmp->set_target(Compare::CREATE);
+                                  cmp->set_result(Compare::GREATER);
+                                  cmp->set_create_revision(0);
+                              }
+
+                              // on success: put value and get new version
                               // put request
                               auto request = new PutRequest();
                               request->set_key(key);
                               request->set_value(value);
 
+                              auto requestOp_put = txn.add_success();
+                              requestOp_put->set_allocated_request_put(request);
+
                               // range request after put to get key's version
                               auto get_request = new RangeRequest();
                               get_request->set_key(key);
                               get_request->set_limit(1);
-
-                              TxnRequest txn;
-
-                              auto cmp = txn.add_compare();
-                              cmp->set_key(key);
-                              cmp->set_target(Compare::CREATE);
-                              cmp->set_result(Compare::GREATER);
-                              cmp->set_create_revision(0);
-
-                              auto requestOp_put = txn.add_success();
-                              requestOp_put->set_allocated_request_put(request);
 
                               auto requestOp_get = txn.add_success();
                               requestOp_get->set_allocated_request_range(get_request);
@@ -170,41 +184,61 @@ public:
     {
         return this->thread_pool_->async(
                           [this, key, value, version]() -> CASResult  {
-                              if (version < int64_t(0))
-                                  return {set(key, value).get().version, true};
+                              if (version == int64_t(0))
+                                  try {
+                                      create(key, value).get();
+                                      return {0, true};
+                                  } catch (EntryExists&) {
+                                      return {0, false};
+                                  }
+
+                              auto entries = get_entry_sequence(key);
                               grpc::ClientContext context;
 
-                              // put request
-                              auto request = new PutRequest();
-                              request->set_key(key);
-                              request->set_value(value);
-
-                              // range request after put to get key's version
-                              auto get_request = new RangeRequest();
-                              get_request->set_key(key);
-                              get_request->set_limit(1);
-
-                              // range request after fail to determine real key's version
-                              auto get_request_failure = new RangeRequest();
-                              get_request_failure->set_key(key);
-                              get_request_failure->set_limit(1);
 
                               TxnRequest txn;
 
+                              // check that given entry and its parent exist
+                              for (size_t i = std::max(0, entries.size() - 2); i < entries.size(); ++i) {
+                                  auto cmp = txn.add_compare();
+                                  cmp->set_key(entries[i]);
+                                  cmp->set_target(Compare::CREATE);
+                                  cmp->set_result(Compare::GREATER);
+                                  cmp->set_create_revision(0);
+                              }
+
+                              // check that versions are equal
                               auto cmp = txn.add_compare();
                               cmp->set_key(key);
                               cmp->set_target(Compare::VERSION);
                               cmp->set_result(Compare::EQUAL);
                               cmp->set_version(version);
 
+                              // on success: put new value, get new version
+                              // put request
+                              auto request = new PutRequest();
+                              request->set_key(key);
+                              request->set_value(value);
+
                               auto requestOp_put = txn.add_success();
                               requestOp_put->set_allocated_request_put(request);
+
+                              // range request after put to get key's version
+                              auto get_request = new RangeRequest();
+                              get_request->set_key(key);
+                              get_request->set_limit(1);
 
                               auto requestOp_get = txn.add_success();
                               requestOp_get->set_allocated_request_range(get_request);
 
+                              // on fail: check if the given key exists
+                              auto get_request_failure = new RangeRequest();
+                              get_request_failure->set_key(key);
+                              get_request_failure->set_limit(1);
+
                               auto requestOp_get_failure = txn.add_failure();
                               requestOp_get_failure->set_allocated_request_range(get_request_failure);
+
 
                               TxnResponse response;
 
@@ -212,9 +246,15 @@ public:
                               if (!status.ok())
                                   throw status.error_message();
 
-                              if (!response.succeeded())
-                                  return {response.mutable_responses(0)->release_response_range()
-                                                                       ->kvs(0).version(), false};
+                              if (!response.succeeded()) {
+                                  auto failure_response = response.mutable_responses(0)->release_response_range();
+
+                                  if (failure_response->kvs_size())
+                                      return {failure_response->kvs(0).version(), false};
+
+                                  // ! throws NoEntry if version != 0 and key doesn't exist
+                                  return NoEntry{};
+                              }
 
                               return {response.mutable_responses(1)->release_response_range()->kvs(0).version(), true};
                           });
@@ -257,16 +297,31 @@ public:
 
                               TxnRequest txn;
 
-                              if (version >= int64_t(0)) {
+                              auto cmp = txn.add_compare();
+                              cmp->set_key(key);
+                              cmp->set_target(Compare::CREATE);
+                              cmp->set_result(Compare::GREATER);
+                              cmp->set_create_revision(0);
+
+                              if (version > int64_t(0)) {
                                   auto cmp = txn.add_compare();
                                   cmp->set_key(key);
-                                  cmp->set_target(Compare::CREATE);
-                                  cmp->set_result(Compare::GREATER);
-                                  cmp->set_create_revision(0);
+                                  cmp->set_target(Compare::VERSION);
+                                  cmp->set_result(Compare::EQUAL);
+                                  cmp->set_version(version);
                               }
 
                               auto requestOp = txn.add_success();
                               requestOp->set_allocated_request_delete_range(request);
+
+                              // on failure: check if key exists
+                              auto get_request_failure = new RangeRequest();
+                              get_request_failure->set_key(key);
+                              get_request_failure->set_limit(1);
+
+                              auto requestOp_get_failure = txn.add_failure();
+                              requestOp_get_failure->set_allocated_request_range(get_request_failure);
+
 
                               TxnResponse response;
 
@@ -274,7 +329,8 @@ public:
                               if (!status.ok())
                                   throw status.error_message();
 
-                              if (!response.succeeded())
+                              if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()
+                                                                                         ->kvs_size())
                                   throw NoEntry{};
                           });
     }

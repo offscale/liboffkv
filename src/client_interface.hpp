@@ -13,14 +13,11 @@ template <typename ThreadPool>
 class Client {
 protected:
     std::shared_ptr <ThreadPool> thread_pool_;
+    std::string address_;
 
 public:
     Client(const std::string&, std::shared_ptr <ThreadPool> time_machine = nullptr)
         : thread_pool_(time_machine == nullptr ? std::make_shared<ThreadPool>() : std::move(time_machine))
-    {}
-
-    Client(Client&& another)
-        : thread_pool_(std::move(another.thread_pool_))
     {}
 
     Client() = default;
@@ -28,6 +25,10 @@ public:
     virtual
     ~Client() = default;
 
+    std::string address() const
+    {
+        return address_;
+    }
 
     virtual
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false) = 0;
