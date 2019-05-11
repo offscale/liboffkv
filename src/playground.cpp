@@ -22,104 +22,33 @@
 
 
 
-template <class T>
-T get_result(const std::unique_ptr<grpc::ClientAsyncResponseReader<T>> reader, grpc::CompletionQueue& queue, int k)
-{
-    T res;
-    grpc::Status status;
-    reader->Finish(&res, &status, &k);
+class MoveTest {
+private:
+    std::shared_ptr<int> shared_resource_;
 
-    void* tag;
-    bool ok;
-    do {
-        queue.Next(&tag, &ok);
-    } while (!ok || tag != &k);
+public:
+    MoveTest()
+        : shared_resource_(std::make_shared<int>(5))
+    {}
 
-    if (status.ok())
-        return res;
+    MoveTest(MoveTest&& oth) noexcept
+        : shared_resource_(std::move(oth.shared_resource_))
+    {}
 
-    std::cerr << status.error_message() << std::endl;
-    throw std::runtime_error("Some problems");
-}
 
-zk::buffer zkbuf(const std::string& s) {
-    return {s.begin(), s.end()};
-}
-std::string zkstr(const zk::buffer& s) {
-    return {s.begin(), s.end()};
-}
+    std::future<void> doSmth() {
+        return std::async(std::launch::async, [this]() {
+           std::this_thread::sleep_for(std::chrono::seconds(1));
+           std::cout << *shared_resource_ << std::endl;
+        });
+    }
+};
+
 
 int main()
 {
-    // ---- consul -----
-//    ppconsul::Consul consul("127.0.0.1:8500");
-//    ppconsul::kv::Kv kv(consul, ppconsul::kw::consistency=ppconsul::Consistency::Consistent);
-//    
-//    kv.set("superkey", "value");
-//    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
-//    
-//    kv.erase("superkey");
-//    std::cout << "Consul: " << kv.get("superkey", "notfound") << std::endl;
-//
-//    return 0;
-
-
-    // ---- zk -----
-    zk::client client_ = zk::client::connect("zk://127.0.0.1:2181").get();
-
-    zk::multi_op txn = {
-        zk::op::create("/mix", zkbuf("mama")),
-        zk::op::create("/mix/huaro", zkbuf("mia"))
-    };
-    const zk::multi_result txn_res1 = client_.commit(txn).get();
-    const zk::multi_result txn_res2 = client_.commit(txn).get();
-      
-
-//    std::cout << "ZK: " << zkstr(zk_res1.data()) << ' ' << zkstr(zk_res2.data()) << std::endl;
-    
-    return 0;
-
-    // ---- etcd ------
-    grpc_init();
-
-    std::shared_ptr<grpc::ClientContext> context = std::make_shared<grpc::ClientContext>();
-    grpc::CompletionQueue queue;
-    const std::shared_ptr<grpc::Channel>& chn = grpc::CreateChannel("localhost:2379",
-                                                                    grpc::InsecureChannelCredentials());
-
-    std::cerr << "Status 2" << std::endl;
-
-    const std::unique_ptr<etcdserverpb::KV::Stub>& stub = etcdserverpb::KV::NewStub(chn);
-
-    std::cerr << "Status 3" << std::endl;
-
-    etcdserverpb::PutRequest preq;
-    preq.set_key("fooq");
-    preq.set_ignore_lease(false);
-    preq.set_ignore_value(false);
-    preq.set_value("test");
-    preq.set_lease(0);
-
-    std::unique_ptr<grpc::ClientAsyncResponseReader<etcdserverpb::PutResponse>> reader1 =
-        stub->AsyncPut(context.get(), preq, &queue);
-    etcdserverpb::PutResponse resp = get_result(std::move(reader1), queue, 1);
-
-    context = std::make_shared<grpc::ClientContext>();
-
-    std::cerr << "Status 4" << std::endl;
-
-    etcdserverpb::RangeRequest rreq;
-    rreq.set_key("fooq");
-    rreq.set_limit(0);
-    rreq.set_revision(-1);
-
-    std::unique_ptr<grpc::ClientAsyncResponseReader<etcdserverpb::RangeResponse>> reader2 =
-        stub->AsyncRange(context.get(), rreq, &queue);
-    const etcdserverpb::RangeResponse response = get_result(std::move(reader2), queue, 2);
-
-    std::cout << "Got keys: " << response.kvs_size() << std::endl;
-    for (int i = 0; i < response.kvs_size(); ++i) {
-        const mvccpb::KeyValue& kv = response.kvs(i);
-        std::cout << kv.key() << " = " << kv.value() << std::endl;
-    }
+    MoveTest a;
+    std::future<void> future = a.doSmth();
+    MoveTest b = std::move(a);
+    future.get();
 }
