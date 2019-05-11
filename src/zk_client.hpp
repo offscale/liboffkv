@@ -63,22 +63,6 @@ public:
     ~ZKClient() override = default;
 
 
-    ZKClient(ZKClient&& another)
-        : Client(std::move(another)),
-          client_(std::move(another.client_)),
-          prefix_(std::move(another.prefix_))
-    {}
-
-    ZKClient& operator=(ZKClient&& another)
-    {
-        client_ = std::move(another.client_);
-        thread_pool_ = std::move(another.thread_pool_);
-        prefix_ = std::move(another.prefix_);
-
-        return *this;
-    }
-
-
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return thread_pool_->then(

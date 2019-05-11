@@ -34,22 +34,6 @@ public:
     ~ConsulClient() = default;
 
 
-    ConsulClient(ConsulClient&& another)
-        : Client(std::move(another)),
-          client_(std::move(another.client_)),
-          kv_(std::make_unique<Kv>(client_))
-    {}
-
-    ConsulClient& operator=(ConsulClient&& another)
-    {
-        client_ = std::move(another.client_);
-        kv_ = std::make_unique<Kv>(client_);
-        this->thread_pool_ = std::move(another.thread_pool_);
-
-        return *this;
-    }
-
-
     // TODO: use lease
     // TODO in general: use transactions everywhere to check existance before update and so on atomically
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
@@ -88,13 +72,13 @@ public:
                           });
     }
 
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
         return this->thread_pool_->async(
                           [this, key, value, version]() -> CASResult {
                               std::unique_lock lock(lock_);
                               try {
-                                  if (version < int64_t(0))
+                                  if (version < uint64_t(0))
                                       return {set(key, value).get().version, true};
                                   auto success = kv_->compareSet(key, version, value);
                                   return {kv_->item(ppconsul::withHeaders, key).headers().index(), success};
@@ -116,7 +100,7 @@ public:
                           });
     }
 
-    std::future<void> erase(const std::string& key, int64_t version)
+    std::future<void> erase(const std::string& key, uint64_t version) override
     {
         return this->thread_pool_->async(
                    [this, key, version] {
@@ -126,7 +110,7 @@ public:
                            if (!item.data().valid())
                                throw NoEntry{};
 
-                           if (version < int64_t(0))
+                           if (version < uint64_t(0))
                                kv_->erase(key);
                            else
                                kv_->compareErase(key, version);
