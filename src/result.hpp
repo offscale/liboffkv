@@ -24,6 +24,7 @@ struct SetResult : Result {
 
 struct ExistsResult : Result {
     bool exists;
+    std::unique_ptr<std::future<void>> watch;
 
     explicit operator bool() const
     {
@@ -39,6 +40,7 @@ struct ExistsResult : Result {
 
 struct GetResult : Result {
     std::string value;
+    std::unique_ptr<std::future<void>> watch;
 };
 
 

@@ -199,8 +199,23 @@ public:
         );
     }
 
-    std::future<GetResult> get(const std::string& key) const override
+    std::future<GetResult> get(const std::string& key, bool watch = false) const override
     {
+        if (watch) {
+            return thread_pool_->then(
+                client_.watch(get_path(key)),
+                [tp = thread_pool_](std::future<zk::watch_result>&& result) -> GetResult {
+                    auto full_res = call_get(std::move(result));
+                    auto res = full_res.initial();
+                    return {
+                        static_cast<uint64_t>(res.stat().data_version.value + 1),
+                        to_string(res.data()),
+                        std::make_unique<std::future<void>>(tp->then(std::move(full_res.next()), call_get_ignore<zk::event>))
+                    };
+                }
+            );
+        }
+
         return thread_pool_->then(
             client_.get(get_path(key)),
             [](std::future<zk::get_result>&& result) -> GetResult {

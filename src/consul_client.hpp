@@ -86,7 +86,7 @@ public:
                           });
     }
 
-    std::future<GetResult> get(const std::string& key) const
+    std::future<GetResult> get(const std::string& key, bool watch = false) const override
     {
         return this->thread_pool_->async(
                           [this, key]() -> GetResult {

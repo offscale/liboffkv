@@ -55,6 +55,42 @@ void test_client(std::unique_ptr<Client>&& client)
 }
 
 
+template <class ClientConstructor>
+void test_get_watches(const ClientConstructor& client_constructor)
+{
+    std::unique_ptr<Client> client = client_constructor();
+    try {
+        client->erase("/key").get();
+    } catch (...) {}
+    client->create("/key", "test1").get();
+    
+    // use mutex as simple barrier
+    std::mutex my_lock;
+    my_lock.lock();
+    
+    std::thread([&client_constructor, &my_lock]() mutable {
+        std::unique_ptr<Client> client = client_constructor();
+        std::lock_guard<std::mutex> lock_guard(my_lock);
+        std::cout << "Watch, call set" << std::endl;
+        client->set("/key", "test2").get();
+        std::cout << "Watch, finish set" << std::endl;
+    }).detach();
+
+    std::future<GetResult> future = client->get("/key", true);
+    my_lock.unlock();
+
+
+    const GetResult get = future.get();
+    std::cout << "Watch, got: " << get.value << std::endl;
+    get.watch->get();
+    std::cout << "Watch triggered" << std::endl;
+
+    const GetResult get2 = client->get("/key").get();
+    std::cout << "Watch, new value: " << get2.value << std::endl;
+    std::cout << "Watch, ==nullptr?: " << (get2.watch.get() == nullptr) << std::endl;
+}
+
+
 void test_time_machine()
 {
     time_machine::ThreadPool<std::promise, std::future> timeMachine;
@@ -107,8 +143,8 @@ void test_path_parse()
 int main()
 {
 //    test_path_parse();
-    test_client(connect("zk://127.0.0.1:2181", "", tm));
-    test_client(connect("zk://127.0.0.1:2181", "/test/the/prefix", tm));
+    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
+    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
 //    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
     test_time_machine();
