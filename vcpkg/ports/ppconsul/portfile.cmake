@@ -2,9 +2,9 @@ include(vcpkg_common_functions)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO oliora/ppconsul
-    REF e32cf6f80b598760278c018eed546f88292f1735
-    SHA512 8ca3b1f37a22bf27ce27af27676ba88a67c0c7b3357488edb925649b5d59b546b5cbf7a14452d07b41bb2649de7d0a8126d247a797f1a0e7395c3704fb54a758
+    REPO shdown/ppconsul
+    REF 65c6aa6a9f06e9c8f0e3c39ac4ec8498f772263a
+    SHA512 d5ccbb9e1631deedbb61e6ac1de258a93a604162792b0ebdb16720032017d7b566039159e10f551941daa4a92c90541547ba8801d7df9b7a9a6a1ff93cfcae82
     HEAD_REF master
 )
 
