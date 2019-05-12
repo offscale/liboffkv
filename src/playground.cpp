@@ -14,7 +14,6 @@
 #include <zk/error.hpp>
 #include <zk/multi.hpp>
 #include <zk/types.hpp>
-#include "operation.hpp"
 
 
 #include <ppconsul/consul.h>
@@ -47,8 +46,25 @@ public:
 
 int main()
 {
-    MoveTest a;
-    std::future<void> future = a.doSmth();
-    MoveTest b = std::move(a);
-    future.get();
+    ppconsul::Consul consul;
+    ppconsul::kv::Kv kv(consul);
+
+    std::vector<ppconsul::kv::KeyValue> results = kv.commit({
+        ppconsul::kv::TxnRequest::set("kek", "jopa"),
+        ppconsul::kv::TxnRequest::get("kek"),
+        ppconsul::kv::TxnRequest::set("keki", "wo"),
+        ppconsul::kv::TxnRequest::erase("kek"),
+        ppconsul::kv::TxnRequest::getAll("ke"),
+                                              });
+
+    for (const auto &kv : results) {
+        printf("{key='%s', value='%s', session='%s', createIndex=%zu, modifyIndex=%zu, lockIndex=%zu, flags=%zu}\n",
+               kv.key.c_str(),
+               kv.value.c_str(),
+               kv.session.c_str(),
+               static_cast<size_t>(kv.createIndex),
+               static_cast<size_t>(kv.modifyIndex),
+               static_cast<size_t>(kv.lockIndex),
+               static_cast<size_t>(kv.flags));
+    }
 }

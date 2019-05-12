@@ -75,8 +75,22 @@ public:
         );
     }
 
-    std::future<ExistsResult> exists(const std::string& key) const override
+    std::future<ExistsResult> exists(const std::string& key, bool watch = false) const override
     {
+        if (watch)
+            return thread_pool_->then(
+                client_.watch_exists(get_path(key)),
+                [tp = thread_pool_](std::future<zk::watch_exists_result>&& result) -> ExistsResult {
+                    zk::watch_exists_result unwrapped = call_get(std::move(result));
+                    auto stat = unwrapped.initial().stat();
+
+                    return {
+                        stat.has_value() ? static_cast<uint64_t>(stat.value().data_version.value + 1) : 0,
+                        !!unwrapped.initial(),
+                        tp->then(std::move(unwrapped.next()), call_get_ignore<zk::event>).share()
+                    };
+                });
+
         return thread_pool_->then(
             client_.exists(get_path(key)),
             [](std::future<zk::exists_result>&& result) -> ExistsResult {
@@ -89,6 +103,31 @@ public:
             });
     }
 
+
+    std::future<ChildrenResult> get_children(const std::string& key, bool watch) override
+    {
+        if (watch)
+            return thread_pool_->then(
+                client_.watch_children(get_path(key)),
+                [tp = thread_pool_](std::future<zk::watch_children_result>&& result) -> ChildrenResult {
+                    zk::watch_children_result unwrapped = call_get(std::move(result));
+                    return {
+                        unwrapped.initial().children(),
+                        tp->then(std::move(unwrapped.next()), call_get_ignore<zk::event>)
+                    };
+                }
+            );
+
+        return thread_pool_->then(
+            client_.get_children(get_path(key)),
+            [](std::future<zk::get_children_result>&& result) -> ChildrenResult {
+                zk::get_children_result unwrapped = call_get(std::move(result));
+                return {
+                    unwrapped.children()
+                };
+            }
+        );
+    }
 
     // No transactions. Atomicity is not necessary for linearizability here!
     // At least it seems to be so...
@@ -107,7 +146,8 @@ public:
                         client_.set(path, from_string(value)),
                         [path](std::future<zk::set_result>&& result) -> SetResult {
                             try {
-                                return {static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1)};
+                                return {
+                                    static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1)};
                             } catch (NoEntry&) {
                                 // concurrent remove happened
                                 // but set must not throw NoEntry
@@ -141,7 +181,8 @@ public:
                             [](std::future<zk::get_result>&& result) -> CASResult {
                                 try {
                                     return {
-                                        static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1),
+                                        static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value +
+                                                              1),
                                         false
                                     };
                                 } catch (NoEntry&) {
@@ -175,7 +216,8 @@ public:
                                 [version](std::future<zk::get_result>&& result) -> CASResult {
                                     try {
                                         return {
-                                            static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1),
+                                            static_cast<uint64_t>(
+                                                call_get(std::move(result)).stat().data_version.value + 1),
                                             false
                                         };
                                     } catch (zk::error& e) {
@@ -210,7 +252,7 @@ public:
                     return {
                         static_cast<uint64_t>(res.stat().data_version.value + 1),
                         to_string(res.data()),
-                        std::make_unique<std::future<void>>(tp->then(std::move(full_res.next()), call_get_ignore<zk::event>))
+                        tp->then(std::move(full_res.next()), call_get_ignore<zk::event>).share()
                     };
                 }
             );
@@ -258,7 +300,8 @@ public:
                     trn.push_back(zk::op::erase(get_path(erase_op_ptr->key), zk::version(erase_op_ptr->version)));
                     break;
                 }
-                default: __builtin_unreachable();
+                default:
+                    __builtin_unreachable();
             }
         };
 

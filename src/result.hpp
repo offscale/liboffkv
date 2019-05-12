@@ -1,5 +1,7 @@
 #include <utility>
 
+
+
 #pragma once
 
 #include <string>
@@ -24,23 +26,24 @@ struct SetResult : Result {
 
 struct ExistsResult : Result {
     bool exists;
-    std::unique_ptr<std::future<void>> watch;
+    std::shared_future<void> watch;
 
     explicit operator bool() const
     {
         return exists;
-    }
-
-    bool operator!() const
-    {
-        return !exists;
     }
 };
 
 
 struct GetResult : Result {
     std::string value;
-    std::unique_ptr<std::future<void>> watch;
+    std::shared_future<void> watch;
+};
+
+
+struct ChildrenResult {
+    std::vector<std::string> children; // TODO: substitute string with Key
+    std::shared_future<void> watch;
 };
 
 
@@ -69,6 +72,7 @@ private:
             : type(type), result(std::move(result))
         {}
     };
+
 
     bool succeeded_;
     std::vector<OperationResult> op_results_;

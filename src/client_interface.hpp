@@ -34,7 +34,10 @@ public:
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false) = 0;
 
     virtual
-    std::future<ExistsResult> exists(const std::string& key) const = 0;
+    std::future<ExistsResult> exists(const std::string& key, bool watch = false) const = 0;
+
+    virtual
+    std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) = 0;
 
     virtual
     std::future<SetResult> set(const std::string& key, const std::string& value) = 0;
