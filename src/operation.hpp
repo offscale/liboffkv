@@ -1,5 +1,7 @@
 #pragma once
 
+#include "util.hpp"
+
 
 namespace op {
 
@@ -51,7 +53,7 @@ struct Erase : Operation {
 
 struct Check {
     std::string key;
-    unt64_t version = 0;
+    uint64_t version = 0;
 };
 
 } // namespace op
@@ -116,7 +118,7 @@ public:
 
     void add_check(op::Check&& check)
     {
-        checks_.push_beck(std::move(check));
+        checks_.push_back(std::move(check));
     }
 
     const CheckList& checks() const

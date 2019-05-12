@@ -21,7 +21,7 @@ std::pair<std::string, std::string> get_protocol_address(const std::string& addr
 
 
 template <size_t from, typename... Ts, std::size_t... indices>
-auto subtuple_impl(const std::tuple<T...>& tpl, std::index_sequence<indices...>)
+auto subtuple_impl(const std::tuple<Ts...>& tpl, std::index_sequence<indices...>)
 {
     return std::make_tuple(std::get<from + indices>(tpl)...);
 }
