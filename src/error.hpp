@@ -48,6 +48,12 @@
 #define liboffkv_catch_consul
 #endif
 
+// used to avoid compilation errors when zk and consul are disabled
+#define liboffkv_catch_default \
+    catch (...) {\
+        std::rethrow_exception(std::current_exception());\
+    }\
+
 
 class InvalidAddress : public std::exception {
 public:
@@ -84,7 +90,7 @@ class EntryExists : public std::exception {
 };
 
 
-#define liboffkv_catch liboffkv_catch_zk liboffkv_catch_consul
+#define liboffkv_catch liboffkv_catch_zk liboffkv_catch_consul liboffkv_catch_default
 
 
 template <class T>

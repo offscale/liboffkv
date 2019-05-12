@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cassert>
 
 
 #include "client.hpp"
@@ -66,11 +67,11 @@ void test_get_watches(const ClientConstructor& client_constructor)
         client->erase("/key").get();
     } catch (...) {}
     client->create("/key", "test1").get();
-    
+
     // use mutex as simple barrier
     std::mutex my_lock;
     my_lock.lock();
-    
+
     std::thread([&client_constructor, &my_lock]() mutable {
         std::unique_ptr<Client> client = client_constructor();
         std::lock_guard<std::mutex> lock_guard(my_lock);
@@ -85,14 +86,38 @@ void test_get_watches(const ClientConstructor& client_constructor)
 
     const GetResult get = future.get();
     std::cout << "Watch, got: " << get.value << std::endl;
-    get.watch->get();
+    get.watch.get();
     std::cout << "Watch triggered" << std::endl;
 
     const GetResult get2 = client->get("/key").get();
     std::cout << "Watch, new value: " << get2.value << std::endl;
-    std::cout << "Watch, ==nullptr?: " << (get2.watch.get() == nullptr) << std::endl;
+    std::cout << "Watch, valid?: " << (get2.watch.valid()) << std::endl;
 }
 
+
+void test_get_children(std::unique_ptr<Client>&& client)
+{
+    client->erase("/parent").get(); // this erase seem not to work in ZK, investigate
+
+    client->create("/parent", "").get();
+
+    assert(client->get_children("/parent").get().children.empty());
+
+    std::future<void> future1 = client->create("/parent/child1", "");
+    std::future<void> future2 = client->create("/parent/child2", "");
+
+    future1.get();
+    future2.get();
+
+    tm->then(client->get_children("/parent"), [](std::future<ChildrenResult>&& res) {
+        auto unwrapped = res.get().children;
+        std::cout << "Children: ";
+        for (auto& s : unwrapped) {
+            std::cout << s << ' ';
+        }
+        std::cout << std::endl;
+    }).get();
+}
 
 void test_time_machine()
 {
@@ -146,8 +171,9 @@ void test_path_parse()
 int main()
 {
 //    test_path_parse();
-    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
-    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
+//    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
+//    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
+    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
 //    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
     test_time_machine();
