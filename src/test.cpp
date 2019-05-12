@@ -47,8 +47,11 @@ void test_client(std::unique_ptr<Client>&& client)
 
 //    client->commit(
 //    {
+//        {
+//            op::Check("a", 0),
+//            op::Check("tr_key", 0)
+//        },
 //        op::Create("tr_key", "value"),
-//        op::Check("tr_key", 0),
 //        op::Set("tr_key", "new_value"),
 //        op::Erase("tr_key", 1)
 //    });

@@ -5,7 +5,6 @@ namespace op {
 
 enum class op_type {
     CREATE,
-    CHECK,
     SET,
     ERASE,
 };
@@ -32,15 +31,6 @@ struct Create : Operation {
 };
 
 
-struct Check : Operation {
-    int64_t version;
-
-    Check(const std::string& key, int64_t version)
-        : Operation(op_type::CHECK, key), version(version)
-    {}
-};
-
-
 struct Set : Operation {
     std::string value;
 
@@ -58,12 +48,24 @@ struct Erase : Operation {
     {}
 };
 
+
+struct Check {
+    std::string key;
+    unt64_t version = 0;
+};
+
 } // namespace op
+
+
+
+using CheckList = std::vector<op::Check>;
+using OperationList = std::vector<std::shared_ptr<op::Operation>>;
 
 
 class Transaction {
 private:
-    std::vector<std::shared_ptr<op::Operation>> operations_;
+    CheckList checks_;
+    OperationList operations_;
 
 
     template <typename... Ops>
@@ -101,28 +103,29 @@ public:
     {}
 
     template <typename... Ops>
-    Transaction(std::tuple<Ops...>&& tpl)
-        : operations_(make_list_(tpl))
+    Transaction(std::tuple<CheckList, Ops...>&& tpl)
+        : checks_(tpl.get(0)),
+          operations_(make_list_(subtuple<1, sizeof...(Ops)>(tpl)))
     {}
 
 
-    void push_back(op::Operation&& res)
+    void add_operation(op::Operation&& res)
     {
-        operations_.push_back(std::make_shared<op::Operation>(res));
+        operations_.push_back(std::make_shared<op::Operation>(std::move(res)));
     }
 
-    void pop_back()
+    void add_check(op::Check&& check)
     {
-        operations_.pop_back();
+        checks_.push_beck(std::move(check));
     }
 
-    auto begin() const
+    const CheckList& checks() const
     {
-        return operations_.begin();
+        return checks_;
     }
 
-    auto end() const
+    const OperationList& operations() const
     {
-        return operations_.end();
+        return operations_;
     }
 };

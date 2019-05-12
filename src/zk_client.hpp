@@ -238,16 +238,14 @@ public:
     {
         zk::multi_op trn;
 
-        for (const auto& op_ptr : transaction) {
+        for (const auto& check : transaction.checks())
+            trn.push_back(zk::op::check(get_path(check.key), zk::version(check.version)));
+
+        for (const auto& op_ptr : transaction.operations()) {
             switch (op_ptr->type) {
                 case op::op_type::CREATE: {
                     auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
                     trn.push_back(zk::op::create(get_path(create_op_ptr->key), from_string(create_op_ptr->value)));
-                    break;
-                }
-                case op::op_type::CHECK: {
-                    auto check_op_ptr = dynamic_cast<op::Check*>(op_ptr.get());
-                    trn.push_back(zk::op::check(get_path(check_op_ptr->key), zk::version(check_op_ptr->version)));
                     break;
                 }
                 case op::op_type::SET: {
@@ -260,8 +258,7 @@ public:
                     trn.push_back(zk::op::erase(get_path(erase_op_ptr->key), zk::version(erase_op_ptr->version)));
                     break;
                 }
-                default:
-                    __builtin_unreachable();
+                default: __builtin_unreachable();
             }
         };
 

@@ -338,14 +338,121 @@ public:
 //    std::future<WatchResult> watch(const std::string& key) = 0;
 
 
-    // TODO
     std::future<TransactionResult> commit(const Transaction& transaction)
     {
         return this->thread_pool_->async(
                           [this, transaction]() -> TransactionResult {
-                              try {
+                              std::vector<int> create_indices, set_indices;
+                              int _i = 0;
+
+                              TxnRequest txn;
+
+                              for (const auto& check : transaction.checks()) {
+                                  auto cmp = txn.add_compare();
+                                  cmp->set_target(Compare::VERSION);
+                                  cmp->set_result(Compare::EQUAL);
+                                  cmp->set_key(check.key);
+                                  cmp->set_version(check.version);
+                              }
+
+                              for (const auto& op_ptr : transaction.operations()) {
+                                  switch (op_ptr->type) {
+                                      case op::op_type::CREATE: {
+                                          auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
+
+                                          auto request = new PutRequest();
+                                          request->set_key(create_op_ptr->key);
+                                          request->set_value(create_op_ptr->value);
+
+                                          auto requestOP = txn.add_success();
+                                          requestOP->set_allocated_request_put(request);
+
+                                          auto get_request = new RangeRequest();
+                                          request->set_key(create_op_ptr->key);
+                                          request->set_limit(1);
+
+                                          auto get_requestOP = txn.add_success();
+                                          get_requestOP->set_allocated_request_range(get_request);
+
+                                          create_indices.push_back(_i + 1);
+
+                                          _i += 2;
+                                          break;
+                                      }
+                                      case op::op_type::SET: {
+                                          auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
+
+                                          auto request = new PutRequest();
+                                          request->set_key(set_op_ptr->key);
+                                          request->set_value(set_op_ptr->value);
+
+                                          auto requestOP = txn.add_success();
+                                          requestOP->set_allocated_request_put(request);
+
+                                          auto get_request = new RangeRequest();
+                                          request->set_key(create_op_ptr->key);
+                                          request->set_limit(1);
+
+                                          auto get_requestOP = txn.add_success();
+                                          get_requestOP->set_allocated_request_range(get_request);
+
+                                          create_indices.push_back(_i + 1);
+
+                                          _i += 2;
+
+                                          break;
+                                      }
+                                      case op::op_type::ERASE: {
+                                          auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
+
+                                          auto request = new DeleteRangeRequest();
+                                          request->set_key(create_op_ptr->key);
+
+                                          auto requestOP = txn.add_success();
+                                          requestOP->set_allocated_request_delete_range(request);
+
+                                          ++_i;
+
+                                          break;
+                                      }
+                                      default: __builtin_unreachable();
+                                  }
+                              }
+
+                              TxnResponse response;
+
+                              auto status = stub_->Txn(&context, txn, &response);
+                              if (!status.ok())
+                                  throw status.error_message();
+
+                              if (!response.succeeded())
                                   return TransactionResult();
-                              } liboffkv_catch
+
+                              TransactionResult result;
+
+                              int i = 0, j = 0;
+                              while (i < create_indices.size() && j < set_indices.size())
+                                  if (create_indices[i] < set_indices[j]) {
+                                      result.push_back(CreateResult{});
+                                      ++i;
+                                  } else {
+                                      result.push_back(SetResult{response->get_mutable_responses(set_indices[j])
+                                                                         ->release_response_range()->kvs(0).version()});
+                                      ++j;
+                                  }
+
+                              while (i < create_indices.size()) {
+                                  result.push_back(CreateResult{});
+                                  ++i;
+                              }
+
+                              while (j < set_indices.size()) {
+                                  result.push_back(SetResult{response->get_mutable_responses(set_indices[j])
+                                                                 ->release_response_range()->kvs(0).version()});
+                                  ++j;
+                              }
+
+                              return result;
                           });
     }
 };

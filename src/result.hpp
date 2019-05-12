@@ -70,19 +70,20 @@ private:
         {}
     };
 
-
+    bool succeeded_;
     std::vector<OperationResult> op_results_;
 
 public:
     TransactionResult()
+        : succeeded_(false)
     {}
 
     TransactionResult(std::vector<OperationResult>&& res)
-        : op_results_(std::move(res))
+        : succeeded_(true), op_results_(std::move(res))
     {}
 
     TransactionResult(const std::vector<OperationResult>& res)
-        : op_results_(res)
+        : succeeded_(true), op_results_(res)
     {}
 
     TransactionResult(const TransactionResult&) = default;
@@ -118,5 +119,10 @@ public:
     auto end() const
     {
         return op_results_.end();
+    }
+
+    bool succeeded() const
+    {
+        return succeeded_;
     }
 };
