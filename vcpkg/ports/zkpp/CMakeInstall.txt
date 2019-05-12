@@ -1,3 +1,5 @@
+target_include_directories(zkpp INTERFACE 
+        "${CMAKE_INSTALL_PREFIX}/include")
 
 install(TARGETS zkpp EXPORT zkpp DESTINATION lib/)
 
