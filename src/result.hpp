@@ -98,16 +98,14 @@ public:
     {}
 
 
-    template <typename U>
-    void push_back(U&& res)
+    void push_back(CreateResult&& res)
     {
-        op_results_.push_back(std::forward<U>(res));
+        op_results_.push_back({op::op_type::CREATE, std::make_shared<CreateResult>(std::move(res))});
     }
 
-    template <typename... Args>
-    void emplace_back(Args&& ... args)
+    void push_back(SetResult&& res)
     {
-        op_results_.emplace_back(std::forward<Args>(args)...);
+        op_results_.push_back({op::op_type::SET, std::make_shared<SetResult>(std::move(res))});
     }
 
     void pop_back()

@@ -46,16 +46,19 @@ void test_client(std::unique_ptr<Client>&& client)
 
     client->erase("/key").get()/* doesn't work for consul !!*/;
 
-//    client->commit(
-//    {
-//        {
-//            op::Check("a", 0),
-//            op::Check("tr_key", 0)
-//        },
-//        op::Create("tr_key", "value"),
-//        op::Set("tr_key", "new_value"),
-//        op::Erase("tr_key", 1)
-//    });
+    client->commit(
+    {
+        {
+            op::Check("/a", 0),
+            op::Check("/tr_key", 0)
+        },
+        {
+            op::create("/tr_key", "value"),
+            op::set("/tr_key", "new_value"),
+            op::erase("/tr_key", 1)
+        }
+    }
+    );
 }
 
 
@@ -173,8 +176,8 @@ int main()
 //    test_path_parse();
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
-    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
-//    test_client(connect("etcd://127.0.0.1:2379", "", tm));
+//    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
+    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
     test_time_machine();
 }

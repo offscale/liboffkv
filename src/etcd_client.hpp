@@ -86,7 +86,7 @@ public:
                               // on failure: get request to determine the kind of error
                               auto get_request_failure = new RangeRequest();
                               get_request_failure->set_key(key);
-                              get_request->set_limit(1);
+                              get_request_failure->set_limit(1);
 
 
                               TxnResponse response;
@@ -106,7 +106,7 @@ public:
     }
 
 
-    std::future<ExistsResult> exists(const std::string& key) const
+    std::future<ExistsResult> exists(const std::string& key, bool watch = false) const
     {
         return this->thread_pool_->async(
                           [this, key]() -> ExistsResult {
@@ -122,11 +122,17 @@ public:
                                   throw status.error_message();
 
                               if (!response.kvs_size())
-                                  return {-1, false};
+                                  return {0, false};
 
                               auto kv = response.kvs(0);
                               return {kv.version(), true};
                           });
+    }
+
+
+    std::future<ChildrenResult> get_children(const std::string& key, bool watch = false)
+    {
+        return std::async(std::launch::async, []{return ChildrenResult{};});
     }
 
 
@@ -179,7 +185,7 @@ public:
     }
 
 
-    std::future<CASResult> cas(const std::string& key, const std::string& value, int64_t version)
+    std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version)
     {
         return this->thread_pool_->async(
                           [this, key, value, version]() -> CASResult  {
@@ -198,7 +204,7 @@ public:
                               TxnRequest txn;
 
                               // check that given entry and its parent exist
-                              for (size_t i = std::max(0, entries.size() - 2); i < entries.size(); ++i) {
+                              for (size_t i = std::max<size_t>(0, entries.size() - 2); i < entries.size(); ++i) {
                                   auto cmp = txn.add_compare();
                                   cmp->set_key(entries[i]);
                                   cmp->set_target(Compare::CREATE);
@@ -252,7 +258,7 @@ public:
                                       return {failure_response->kvs(0).version(), false};
 
                                   // ! throws NoEntry if version != 0 and key doesn't exist
-                                  return NoEntry{};
+                                  throw NoEntry{};
                               }
 
                               return {response.mutable_responses(1)->release_response_range()->kvs(0).version(), true};
@@ -260,7 +266,7 @@ public:
     }
 
 
-    std::future<GetResult> get(const std::string& key) const
+    std::future<GetResult> get(const std::string& key, bool watch = false) const
     {
         return this->thread_pool_->async(
                           [this, key]() -> GetResult{
@@ -285,7 +291,7 @@ public:
     }
 
 
-    std::future<void> erase(const std::string& key, int64_t version)
+    std::future<void> erase(const std::string& key, uint64_t version)
     {
         return this->thread_pool_->async(
                           [this, key, version] {
@@ -342,6 +348,7 @@ public:
     {
         return this->thread_pool_->async(
                           [this, transaction]() -> TransactionResult {
+                              grpc::ClientContext context;
                               std::vector<int> create_indices, set_indices;
                               int _i = 0;
 
@@ -367,13 +374,6 @@ public:
                                           auto requestOP = txn.add_success();
                                           requestOP->set_allocated_request_put(request);
 
-                                          auto get_request = new RangeRequest();
-                                          request->set_key(create_op_ptr->key);
-                                          request->set_limit(1);
-
-                                          auto get_requestOP = txn.add_success();
-                                          get_requestOP->set_allocated_request_range(get_request);
-
                                           create_indices.push_back(_i + 1);
 
                                           _i += 2;
@@ -390,8 +390,8 @@ public:
                                           requestOP->set_allocated_request_put(request);
 
                                           auto get_request = new RangeRequest();
-                                          request->set_key(create_op_ptr->key);
-                                          request->set_limit(1);
+                                          get_request->set_key(set_op_ptr->key);
+                                          get_request->set_limit(1);
 
                                           auto get_requestOP = txn.add_success();
                                           get_requestOP->set_allocated_request_range(get_request);
@@ -406,7 +406,7 @@ public:
                                           auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
 
                                           auto request = new DeleteRangeRequest();
-                                          request->set_key(create_op_ptr->key);
+                                          request->set_key(erase_op_ptr->key);
 
                                           auto requestOP = txn.add_success();
                                           requestOP->set_allocated_request_delete_range(request);
@@ -436,7 +436,7 @@ public:
                                       result.push_back(CreateResult{});
                                       ++i;
                                   } else {
-                                      result.push_back(SetResult{response->get_mutable_responses(set_indices[j])
+                                      result.push_back(SetResult{response.mutable_responses(set_indices[j])
                                                                          ->release_response_range()->kvs(0).version()});
                                       ++j;
                                   }
@@ -447,8 +447,8 @@ public:
                               }
 
                               while (j < set_indices.size()) {
-                                  result.push_back(SetResult{response->get_mutable_responses(set_indices[j])
-                                                                 ->release_response_range()->kvs(0).version()});
+                                  result.push_back(SetResult{response.mutable_responses(set_indices[j])
+                                                                     ->release_response_range()->kvs(0).version()});
                                   ++j;
                               }
 
