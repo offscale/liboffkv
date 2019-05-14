@@ -271,7 +271,7 @@ public:
     {
         auto path = get_path(key);
 
-        if (version == uint64_t(0))
+        if (version == 0)
             return thread_pool_->then(client_.erase(path), call_get_ignore_noexcept<void>);
         return thread_pool_->then(client_.erase(path, zk::version(version - 1)), call_get_ignore_noexcept<void>);
     }
@@ -281,13 +281,18 @@ public:
         zk::multi_op trn;
 
         for (const auto& check : transaction.checks())
-            trn.push_back(zk::op::check(get_path(check.key), zk::version(check.version)));
+            trn.push_back(
+                zk::op::check(get_path(check.key), check.version ? zk::version(check.version - 1) : zk::version::any()));
 
         for (const auto& op_ptr : transaction.operations()) {
             switch (op_ptr->type) {
                 case op::op_type::CREATE: {
                     auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
-                    trn.push_back(zk::op::create(get_path(create_op_ptr->key), from_string(create_op_ptr->value)));
+                    trn.push_back(zk::op::create(
+                        get_path(create_op_ptr->key),
+                        from_string(create_op_ptr->value),
+                        (!create_op_ptr->leased ? zk::create_mode::normal : zk::create_mode::ephemeral)
+                    ));
                     break;
                 }
                 case op::op_type::SET: {
@@ -297,7 +302,7 @@ public:
                 }
                 case op::op_type::ERASE: {
                     auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                    trn.push_back(zk::op::erase(get_path(erase_op_ptr->key), zk::version(erase_op_ptr->version)));
+                    trn.push_back(zk::op::erase(get_path(erase_op_ptr->key)));
                     break;
                 }
                 default:
@@ -313,10 +318,13 @@ public:
             for (const auto& res : multi_res_unwrapped) {
                 switch (res.type()) {
                     case zk::op_type::create:
-                        result.push_back(CreateResult{});
+                        result.emplace_back(op::op_type::CREATE, std::make_shared<CreateResult>(0));
                         break;
                     case zk::op_type::set:
-                        result.push_back(SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value)});
+                        result.emplace_back(op::op_type::SET,
+                                            std::make_shared<SetResult>(SetResult{
+                                                static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)
+                                            }));
                         break;
                     case zk::op_type::check:
                     case zk::op_type::erase:
