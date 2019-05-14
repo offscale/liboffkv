@@ -44,7 +44,6 @@ void test_client(std::unique_ptr<Client>&& client)
 
     std::cerr << client->get("/key").get().value << std::endl;
 
-    client->erase("/key").get()/* doesn't work for consul !!*/;
 
     client->commit(
     {
@@ -54,11 +53,14 @@ void test_client(std::unique_ptr<Client>&& client)
         },
         {
             op::create("/tr_key", "value"),
-            op::set("/tr_key", "new_value"),
-            op::erase("/tr_key", 1)
+            op::set("/key", "value_after_txn")
         }
     }
-    );
+    ).get();
+
+    std::cerr << client->get("/key").get().value << std::endl;
+
+    client->erase("/key").get()/* doesn't work for consul !!*/;
 }
 
 

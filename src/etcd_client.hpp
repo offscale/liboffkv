@@ -125,7 +125,7 @@ public:
                                   return {0, false};
 
                               auto kv = response.kvs(0);
-                              return {kv.version(), true};
+                              return {static_cast<uint64_t>(kv.version()), true};
                           });
     }
 
@@ -180,7 +180,8 @@ public:
                               if (!response.succeeded())
                                   throw NoEntry{};
 
-                              return {response.mutable_responses(1)->release_response_range()->kvs(0).version()};
+                              return {static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()
+                                                                                         ->kvs(0).version())};
                           });
     }
 
@@ -255,13 +256,14 @@ public:
                                   auto failure_response = response.mutable_responses(0)->release_response_range();
 
                                   if (failure_response->kvs_size())
-                                      return {failure_response->kvs(0).version(), false};
+                                      return {static_cast<uint64_t>(failure_response->kvs(0).version()), false};
 
                                   // ! throws NoEntry if version != 0 and key doesn't exist
                                   throw NoEntry{};
                               }
 
-                              return {response.mutable_responses(1)->release_response_range()->kvs(0).version(), true};
+                              return {static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()
+                                                                                         ->kvs(0).version()), true};
                           });
     }
 
@@ -286,7 +288,7 @@ public:
                                   throw NoEntry{};
 
                               auto kv = response.kvs(0);
-                              return {kv.version(), kv.value()};
+                              return {static_cast<uint64_t>(kv.version()), kv.value()};
                           });
     }
 
@@ -356,9 +358,9 @@ public:
 
                               for (const auto& check : transaction.checks()) {
                                   auto cmp = txn.add_compare();
+                                  cmp->set_key(check.key);
                                   cmp->set_target(Compare::VERSION);
                                   cmp->set_result(Compare::EQUAL);
-                                  cmp->set_key(check.key);
                                   cmp->set_version(check.version);
                               }
 
@@ -423,7 +425,7 @@ public:
 
                               auto status = stub_->Txn(&context, txn, &response);
                               if (!status.ok())
-                                  throw status.error_message();
+                                  throw std::runtime_error(status.error_message());
 
                               if (!response.succeeded())
                                   return TransactionResult();
@@ -436,8 +438,9 @@ public:
                                       result.push_back(CreateResult{});
                                       ++i;
                                   } else {
-                                      result.push_back(SetResult{response.mutable_responses(set_indices[j])
-                                                                         ->release_response_range()->kvs(0).version()});
+                                      result.push_back(SetResult{static_cast<uint64_t>(
+                                          response.mutable_responses(set_indices[j])->release_response_range()
+                                                                                    ->kvs(0).version())});
                                       ++j;
                                   }
 
@@ -447,8 +450,9 @@ public:
                               }
 
                               while (j < set_indices.size()) {
-                                  result.push_back(SetResult{response.mutable_responses(set_indices[j])
-                                                                     ->release_response_range()->kvs(0).version()});
+                                  result.push_back(SetResult{static_cast<uint64_t>(
+                                      response.mutable_responses(set_indices[j])->release_response_range()
+                                                                                ->kvs(0).version())});
                                   ++j;
                               }
 
