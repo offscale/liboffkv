@@ -26,9 +26,10 @@ struct Operation {
 
 struct Create : Operation {
     std::string value;
+    bool leased;
 
-    Create(const std::string& key, const std::string& value)
-        : Operation(op_type::CREATE, key), value(value)
+    Create(const std::string& key, const std::string& value, bool leased = false)
+        : Operation(op_type::CREATE, key), value(value), leased(leased)
     {}
 };
 
@@ -43,10 +44,8 @@ struct Set : Operation {
 
 
 struct Erase : Operation {
-    int64_t version;
-
-    Erase(const std::string& key, int64_t version)
-        : Operation(op_type::ERASE, key), version(version)
+    Erase(const std::string& key)
+        : Operation(op_type::ERASE, key)
     {}
 };
 
@@ -88,6 +87,30 @@ class Transaction {
 private:
     CheckList checks_;
     OperationList operations_;
+
+
+    template <typename... Ops>
+    static
+    std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl)
+    {
+        return make_list_(std::move(tpl), std::tuple_size<decltype(tpl)>::value);
+    }
+
+    template <typename... Ops, size_t N, typename Indices = std::make_index_sequence<N>>
+    static
+    std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl,
+                                                                     std::integral_constant<size_t, N>)
+    {
+        return make_list_(std::move(tpl), Indices{});
+    }
+
+    template <typename... Ops, size_t... indices>
+    static
+    std::initializer_list<std::shared_ptr<op::Operation>> make_list_(std::tuple<Ops...>&& tpl,
+                                                                     std::index_sequence<indices...>)
+    {
+        return {std::make_shared<Ops>(tpl[indices])...};
+    }
 
 public:
     Transaction()
