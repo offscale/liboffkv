@@ -122,6 +122,8 @@ private:
 
     const std::string get_path(const std::string& key) const
     {
+        // TODO modification for efficient hierarchy:
+        // https://github.com/etcd-io/zetcd/blob/7f7c6911975f190f71df6ca2d56ae4a9f017c3b8/zketcd_path.go#L32
         return prefix_ + key;
     }
 
@@ -180,9 +182,8 @@ public:
                 request->set_value(value);
                 if (leased) {
                     request->set_lease(helper_.get_lease());
-                    request->set_ignore_lease(false);
                 } else {
-                    request->set_ignore_lease(true);
+                    request->set_lease(0);
                 }
 
                 auto requestOp_put = txn.add_success();
@@ -192,6 +193,7 @@ public:
                 auto get_request_failure = new RangeRequest();
                 get_request_failure->set_key(key);
                 get_request_failure->set_limit(1);
+                get_request_failure->set_keys_only(true);
 
 
                 TxnResponse response;
@@ -211,7 +213,7 @@ public:
     }
 
 
-    std::future<ExistsResult> exists(const std::string& key, bool watch = false) const override
+    std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return thread_pool_->async(
             [this, key = get_path(key)]() -> ExistsResult {
@@ -220,6 +222,7 @@ public:
                 RangeRequest request;
                 request.set_key(key);
                 request.set_limit(1);
+                request.set_keys_only(true);
                 RangeResponse response;
 
                 auto status = stub_->Range(&context, request, &response);
@@ -235,8 +238,9 @@ public:
     }
 
 
-    std::future<ChildrenResult> get_children(const std::string& key, bool watch = false)
+    std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
+        // TODO
         return std::async(std::launch::async, [] { return ChildrenResult{}; });
     }
 
@@ -264,6 +268,7 @@ public:
                 auto request = new PutRequest();
                 request->set_key(key);
                 request->set_value(value);
+                // TODO investigate possible lease reset
 
                 auto requestOp_put = txn.add_success();
                 requestOp_put->set_allocated_request_put(request);
@@ -272,6 +277,7 @@ public:
                 auto get_request = new RangeRequest();
                 get_request->set_key(key);
                 get_request->set_limit(1);
+                get_request->set_keys_only(true);
 
                 auto requestOp_get = txn.add_success();
                 requestOp_get->set_allocated_request_range(get_request);
@@ -285,38 +291,41 @@ public:
                 if (!response.succeeded())
                     throw NoEntry{};
 
-                return {static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()
-                    ->kvs(0).version())};
+                return {
+                    static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()->kvs(0).version())
+                };
             });
     }
 
 
     std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
+        if (version == 0)
+            return thread_pool_->then(create(key, value), [](std::future<void>&& res) -> CASResult {
+                try {
+                    res.get();
+                    return {0, true};
+                } catch (EntryExists&) {
+                    return {0, false};
+                }
+            });
+
         return thread_pool_->async(
             [this, key = get_path(key), value, version]() -> CASResult {
-                if (version == int64_t(0))
-                    try {
-                        create(key, value).get();
-                        return {0, true};
-                    } catch (EntryExists&) {
-                        return {0, false};
-                    }
-
                 auto entries = get_entry_sequence(key);
                 grpc::ClientContext context;
-
 
                 TxnRequest txn;
 
                 // check that given entry and its parent exist
-                for (size_t i = std::max<size_t>(0, entries.size() - 2); i < entries.size(); ++i) {
-                    auto cmp = txn.add_compare();
-                    cmp->set_key(entries[i]);
-                    cmp->set_target(Compare::CREATE);
-                    cmp->set_result(Compare::GREATER);
-                    cmp->set_create_revision(0);
-                }
+//                for (size_t i = std::max<size_t>(0, entries.size() - 2); i < entries.size(); ++i) {
+//                    auto cmp = txn.add_compare();
+//                    cmp->set_key(entries[i]);
+//                    cmp->set_target(Compare::CREATE);
+//                    cmp->set_result(Compare::GREATER);
+//                    cmp->set_create_revision(0);
+//                }
+                // checks above seem to be useless, comment
 
                 // check that versions are equal
                 auto cmp = txn.add_compare();
@@ -330,6 +339,7 @@ public:
                 auto request = new PutRequest();
                 request->set_key(key);
                 request->set_value(value);
+                request->set_ignore_lease(true);
 
                 auto requestOp_put = txn.add_success();
                 requestOp_put->set_allocated_request_put(request);
@@ -338,6 +348,7 @@ public:
                 auto get_request = new RangeRequest();
                 get_request->set_key(key);
                 get_request->set_limit(1);
+                get_request->set_keys_only(true);
 
                 auto requestOp_get = txn.add_success();
                 requestOp_get->set_allocated_request_range(get_request);
@@ -346,6 +357,7 @@ public:
                 auto get_request_failure = new RangeRequest();
                 get_request_failure->set_key(key);
                 get_request_failure->set_limit(1);
+                get_request_failure->set_keys_only(true);
 
                 auto requestOp_get_failure = txn.add_failure();
                 requestOp_get_failure->set_allocated_request_range(get_request_failure);
@@ -367,13 +379,15 @@ public:
                     throw NoEntry{};
                 }
 
-                return {static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()
-                    ->kvs(0).version()), true};
+                return {
+                    static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()->kvs(0).version()),
+                    true
+                };
             });
     }
 
 
-    std::future<GetResult> get(const std::string& key, bool watch = false) const override
+    std::future<GetResult> get(const std::string& key, bool watch = false) override
     {
         return thread_pool_->async(
             [this, key = get_path(key)]() -> GetResult {
@@ -398,7 +412,7 @@ public:
     }
 
 
-    std::future<void> erase(const std::string& key, uint64_t version)
+    std::future<void> erase(const std::string& key, uint64_t version = 0)
     {
         return thread_pool_->async(
             [this, key = get_path(key), version] {
@@ -406,21 +420,24 @@ public:
 
                 auto request = new DeleteRangeRequest();
                 request->set_key(key);
+                // TODO delete all subtree instead of just one key
 
                 TxnRequest txn;
 
-                auto cmp = txn.add_compare();
-                cmp->set_key(key);
-                cmp->set_target(Compare::CREATE);
-                cmp->set_result(Compare::GREATER);
-                cmp->set_create_revision(0);
-
-                if (version > int64_t(0)) {
+                if (version > 0) {
+                    // check if versions are equal
                     auto cmp = txn.add_compare();
                     cmp->set_key(key);
                     cmp->set_target(Compare::VERSION);
                     cmp->set_result(Compare::EQUAL);
                     cmp->set_version(version);
+                } else {
+                    // check if key exists
+                    auto cmp = txn.add_compare();
+                    cmp->set_key(key);
+                    cmp->set_target(Compare::CREATE);
+                    cmp->set_result(Compare::GREATER);
+                    cmp->set_create_revision(0);
                 }
 
                 auto requestOp = txn.add_success();
@@ -430,6 +447,7 @@ public:
                 auto get_request_failure = new RangeRequest();
                 get_request_failure->set_key(key);
                 get_request_failure->set_limit(1);
+                get_request_failure->set_keys_only(true);
 
                 auto requestOp_get_failure = txn.add_failure();
                 requestOp_get_failure->set_allocated_request_range(get_request_failure);
@@ -441,14 +459,10 @@ public:
                 if (!status.ok())
                     throw ServiceException(status.error_message());
 
-                if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()
-                    ->kvs_size())
+                if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()->kvs_size())
                     throw NoEntry{};
             });
     }
-
-//    virtual
-//    std::future<WatchResult> watch(const std::string& key) = 0;
 
 
     std::future<TransactionResult> commit(const Transaction& transaction)
@@ -479,10 +493,9 @@ public:
                             request->set_value(create_op_ptr->value);
 
                             if (create_op_ptr->leased) {
-                                request->set_ignore_lease(false);
                                 request->set_lease(helper_.get_lease());
                             } else {
-                                request->set_ignore_lease(true);
+                                request->set_lease(0);
                             }
 
                             auto requestOP = txn.add_success();

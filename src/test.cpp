@@ -186,7 +186,7 @@ int main()
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
 //    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
-//    test_client(connect("etcd://127.0.0.1:2379", "", tm));
+    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
-    test_time_machine();
+//    test_time_machine();
 }

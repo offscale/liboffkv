@@ -75,7 +75,7 @@ public:
         );
     }
 
-    std::future<ExistsResult> exists(const std::string& key, bool watch = false) const override
+    std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         if (watch)
             return thread_pool_->then(
@@ -241,7 +241,7 @@ public:
         );
     }
 
-    std::future<GetResult> get(const std::string& key, bool watch = false) const override
+    std::future<GetResult> get(const std::string& key, bool watch = false) override
     {
         if (watch) {
             return thread_pool_->then(
