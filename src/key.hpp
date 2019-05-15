@@ -64,7 +64,6 @@ bool verify_unit(const std::string& unit)
     }
 
     return unit.size() > 0 &&
-           unit.find("...") == std::string::npos &&
            unit != "." && unit != ".." &&
            unit != "zookeeper";
 }

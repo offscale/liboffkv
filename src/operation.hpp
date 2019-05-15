@@ -70,9 +70,9 @@ std::shared_ptr<op::Set> set(const std::string& key, const std::string& value)
     return std::make_shared<op::Set>(key, value);
 }
 
-std::shared_ptr<op::Erase> erase(const std::string& key, uint64_t version)
+std::shared_ptr<op::Erase> erase(const std::string& key)
 {
-    return std::make_shared<op::Erase>(key, version);
+    return std::make_shared<op::Erase>(key);
 }
 
 } // namespace op
