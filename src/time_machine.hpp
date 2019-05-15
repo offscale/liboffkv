@@ -110,7 +110,7 @@ template <template <class> class Promise = std::promise,
 class ThreadPool {
 public:
     explicit ThreadPool(size_t number_of_threads = 1,
-                         size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
+                        size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
         : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
     {
         for (size_t i = 0; i < number_of_threads; ++i)
@@ -214,6 +214,49 @@ public:
         return future;
     }
 
+    template <class Function, class Time>
+    void periodic(Function&& func, const Time& duration)
+    {
+        using Ms = std::chrono::milliseconds;
+        using Clock = std::chrono::steady_clock;
+        using TimePoint = Clock::time_point;
+
+        std::shared_ptr<Ms> duration_ms = std::make_shared<Ms>(std::chrono::duration_cast<Ms>(duration));
+
+        std::shared_ptr<QueueData> self;
+        std::shared_ptr<TimePoint> start_time = std::make_shared<TimePoint>(Clock::now());
+        self->first =
+            [duration = duration_ms, start_time](std::chrono::milliseconds timeout_duration) mutable {
+                Ms duration_ms = *duration;
+                TimePoint now = Clock::now();
+
+                Ms passed = std::chrono::duration_cast<Ms>(now - *start_time);
+                if (passed < duration_ms)
+                    std::this_thread::sleep_for(std::min(duration_ms - passed, timeout_duration));
+
+                passed = std::chrono::duration_cast<Ms>(now - *start_time);
+                if (passed >= duration_ms)
+                    return true;
+            };
+        self->second =
+            [self, start_time, duration = duration_ms, func = std::forward<Function>(func), queue = queue_]() mutable {
+                try {
+                    if constexpr (std::is_same_v<std::invoke_result_t<std::decay_t<Function>>, void>) {
+                        func();
+                    } else {
+                        *duration = std::chrono::duration_cast<Ms>(func());
+                        if (*duration == Ms::zero())
+                            return;
+                    }
+                } catch (...) {}
+                *start_time = Clock::now();
+                try {
+                    queue->put(self);
+                } catch (QueueClosed&) {}
+            };
+
+        queue_->put(*self);
+    }
 
     ~ThreadPool()
     {

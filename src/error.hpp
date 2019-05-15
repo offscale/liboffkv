@@ -83,10 +83,18 @@ public:
 
 
 class EntryExists : public std::exception {
-    virtual const char* what() const noexcept override
+    const char* what() const noexcept override
     {
         return "entry exists";
     }
+};
+
+
+class ServiceException : public std::runtime_error {
+public:
+    ServiceException(const std::string& arg)
+        : runtime_error(arg)
+    {}
 };
 
 
