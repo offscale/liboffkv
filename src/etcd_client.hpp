@@ -26,8 +26,8 @@ private:
     using LeaseKeepAliveResponse = etcdserverpb::LeaseKeepAliveResponse;
     using LeaseEndpoint = etcdserverpb::Lease;
 
-    std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
     std::shared_ptr<grpc::Channel> channel_;
+    std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
     std::shared_ptr<time_machine::ThreadPool<>> thread_pool_;
     std::atomic<int64_t> lease_id_;
     std::mutex lock_;
@@ -71,8 +71,8 @@ private:
     }
 
 public:
-    ETCDHelper(const std::shared_ptr<grpc::Channel>& channel)
-        : channel_(channel), lease_stub_(LeaseEndpoint::NewStub(channel))
+    ETCDHelper(const std::shared_ptr<grpc::Channel>& channel, std::shared_ptr<time_machine::ThreadPool<>> thread_pool)
+        : channel_(channel), lease_stub_(LeaseEndpoint::NewStub(channel)), thread_pool_(std::move(thread_pool))
     {}
 
     const int64_t get_lease()
@@ -116,8 +116,7 @@ private:
     std::unique_ptr<KV::Stub> stub_;
     std::string prefix_;
 
-    std::atomic_bool lease_id_requested{false};
-    std::shared_future<int64_t> lease_id_source;
+    ETCDHelper helper_;
 
     const std::string get_path(const std::string& key) const
     {
@@ -129,7 +128,8 @@ public:
         : Client(address, std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
           stub_(KV::NewStub(channel_)),
-          prefix_(prefix)
+          prefix_(prefix),
+          helper_(channel_, thread_pool_)
     {}
 
     ETCDClient() = delete;
@@ -146,10 +146,10 @@ public:
     ~ETCDClient() = default;
 
 
-    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
+    std::future<void> create(const std::string& key, const std::string& value, bool leased = false) override
     {
         return thread_pool_->async(
-            [this, key = get_path(key), value, lease] {
+            [this, key = get_path(key), value, leased] {
                 auto entries = get_entry_sequence(key);
                 grpc::ClientContext context;
 
@@ -176,7 +176,12 @@ public:
                 auto request = new PutRequest();
                 request->set_key(key);
                 request->set_value(value);
-                request->set_lease(lease);
+                if (leased) {
+                    request->set_lease(helper_.get_lease());
+                    request->set_ignore_lease(false);
+                } else {
+                    request->set_ignore_lease(true);
+                }
 
                 auto requestOp_put = txn.add_success();
                 requestOp_put->set_allocated_request_put(request);
@@ -470,6 +475,13 @@ public:
                             auto request = new PutRequest();
                             request->set_key(create_op_ptr->key);
                             request->set_value(create_op_ptr->value);
+
+                            if (create_op_ptr->leased) {
+                                request->set_ignore_lease(false);
+                                request->set_lease(helper_.get_lease());
+                            } else {
+                                request->set_ignore_lease(true);
+                            }
 
                             auto requestOP = txn.add_success();
                             requestOP->set_allocated_request_put(request);
