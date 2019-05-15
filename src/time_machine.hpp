@@ -214,6 +214,8 @@ public:
         return future;
     }
 
+
+    // Function must be CopyConstructible
     template <class Function, class Time>
     void periodic(Function&& func, const Time& duration)
     {
@@ -223,7 +225,7 @@ public:
 
         std::shared_ptr<Ms> duration_ms = std::make_shared<Ms>(std::chrono::duration_cast<Ms>(duration));
 
-        std::shared_ptr<QueueData> self;
+        std::shared_ptr<QueueData> self = std::make_shared<QueueData>();
         std::shared_ptr<TimePoint> start_time = std::make_shared<TimePoint>(Clock::now());
         self->first =
             [duration = duration_ms, start_time](std::chrono::milliseconds timeout_duration) mutable {
@@ -251,7 +253,7 @@ public:
                 } catch (...) {}
                 *start_time = Clock::now();
                 try {
-                    queue->put(self);
+                    queue->put(*self);
                 } catch (QueueClosed&) {}
             };
 

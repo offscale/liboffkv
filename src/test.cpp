@@ -161,6 +161,13 @@ void test_time_machine()
             std::cout << future.get() << std::endl;
         }
     );
+
+    timeMachine.periodic([l = std::make_shared<int>(0)] {
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
+            std::cout << ++(*l) << ' ' << ms.count() << std::endl;
+        }, std::chrono::milliseconds(800));
+
+    std::this_thread::sleep_for(std::chrono::seconds(4));
 }
 
 
@@ -179,7 +186,7 @@ int main()
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
 //    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
-    test_client(connect("etcd://127.0.0.1:2379", "", tm));
+//    test_client(connect("etcd://127.0.0.1:2379", "", tm));
 
     test_time_machine();
 }

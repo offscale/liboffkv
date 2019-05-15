@@ -36,12 +36,14 @@ private:
     const void setup_lease_renewal(const int64_t lease_id, const uint64_t ttl) const
     {
         std::shared_ptr<grpc::ClientContext> ctx = std::make_shared<grpc::ClientContext>();
-        auto stream = lease_stub_->LeaseKeepAlive(ctx.get());
+        std::shared_ptr<grpc::ClientReaderWriter<LeaseKeepAliveRequest, LeaseKeepAliveResponse>> stream =
+            lease_stub_->LeaseKeepAlive(ctx.get());
+
         LeaseKeepAliveRequest req;
         req.set_id(lease_id);
 
         thread_pool_->periodic(
-            [req = std::move(req), ctx = ctx, stream = std::move(stream)]() {
+            [req = std::move(req), ctx = ctx, stream = std::move(stream)]() mutable {
                 if (!stream->Write(req)) {
                     return std::chrono::seconds::zero();
                 }
