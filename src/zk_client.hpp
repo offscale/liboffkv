@@ -318,13 +318,10 @@ public:
             for (const auto& res : multi_res_unwrapped) {
                 switch (res.type()) {
                     case zk::op_type::create:
-                        result.emplace_back(op::op_type::CREATE, std::make_shared<CreateResult>(0));
+                        result.push_back(CreateResult{});
                         break;
                     case zk::op_type::set:
-                        result.emplace_back(op::op_type::SET,
-                                            std::make_shared<SetResult>(SetResult{
-                                                static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)
-                                            }));
+                        result.push_back(SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)});
                         break;
                     case zk::op_type::check:
                     case zk::op_type::erase:
