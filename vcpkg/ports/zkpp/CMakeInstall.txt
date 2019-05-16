@@ -145,8 +145,6 @@ build_module(NAME zkpp-tests
 build_module(NAME zkpp
              PATH src/zk
              NO_RECURSE
-             LINK_LIBRARIES
-               zookeeper_mt
             )
 
 build_module(NAME zkpp-server
@@ -293,6 +291,7 @@ endif()
 
 target_include_directories(zkpp INTERFACE 
         "${CMAKE_INSTALL_PREFIX}/include")
+target_link_libraries(zkpp PRIVATE zookeeper_mt)
 
 install(TARGETS zkpp EXPORT zkpp DESTINATION lib/)
 
