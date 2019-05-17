@@ -141,7 +141,7 @@ private:
             throw std::logic_error("Prefix is not set");
 
         init_sequence();
-        transformed_key_ = transformer_(*prefix_, *sequence_);
+        transformed_key_ = transformer_(*prefix_, get_sequence());
     }
 
 public:

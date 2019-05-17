@@ -17,6 +17,9 @@ class ZKClient : public Client {
 private:
     using buffer = zk::buffer;
 
+    zk::client client_;
+    std::string prefix_;
+
     static
     buffer from_string(const std::string& str)
     {
@@ -29,13 +32,15 @@ private:
         return {buf.begin(), buf.end()};
     }
 
-    std::string get_path(const std::string& key) const
+    const std::string get_path(const std::string& key) const
     {
         return prefix_ + key;
     }
 
-    zk::client client_;
-    std::string prefix_;
+    const std::string detach_prefix(const std::string& full_path) const
+    {
+        return full_path.substr(prefix_.size());
+    }
 
 public:
     ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
@@ -109,21 +114,23 @@ public:
         if (watch)
             return thread_pool_->then(
                 client_.watch_children(get_path(key)),
-                [tp = thread_pool_](std::future<zk::watch_children_result>&& result) -> ChildrenResult {
+                [this](std::future<zk::watch_children_result>&& result) -> ChildrenResult {
                     zk::watch_children_result unwrapped = call_get(std::move(result));
+                    const std::vector<std::string>& raw_children = unwrapped.initial().children();
                     return {
-                        unwrapped.initial().children(),
-                        tp->then(std::move(unwrapped.next()), call_get_ignore<zk::event>)
+                        map_vector(raw_children, [this](const auto& child) { return detach_prefix(child); }),
+                        thread_pool_->then(std::move(unwrapped.next()), call_get_ignore<zk::event>)
                     };
                 }
             );
 
         return thread_pool_->then(
             client_.get_children(get_path(key)),
-            [](std::future<zk::get_children_result>&& result) -> ChildrenResult {
+            [this](std::future<zk::get_children_result>&& result) -> ChildrenResult {
                 zk::get_children_result unwrapped = call_get(std::move(result));
+                const std::vector<std::string>& raw_children = unwrapped.children();
                 return {
-                    unwrapped.children()
+                    map_vector(raw_children, [this](const auto& child) { return detach_prefix(child); })
                 };
             }
         );
@@ -269,11 +276,12 @@ public:
 
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
+        // TODO: transaction cas loop to avoid NotEmpty errors
         auto path = get_path(key);
 
         if (version == 0)
-            return thread_pool_->then(client_.erase(path), call_get_ignore_noexcept<void>);
-        return thread_pool_->then(client_.erase(path, zk::version(version - 1)), call_get_ignore_noexcept<void>);
+            return thread_pool_->then(client_.erase(path), call_get_ignore<void>);
+        return thread_pool_->then(client_.erase(path, zk::version(version - 1)), call_get_ignore<void>);
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction)
@@ -282,7 +290,8 @@ public:
 
         for (const auto& check : transaction.checks())
             trn.push_back(
-                zk::op::check(get_path(check.key), check.version ? zk::version(check.version - 1) : zk::version::any()));
+                zk::op::check(get_path(check.key),
+                              check.version ? zk::version(check.version - 1) : zk::version::any()));
 
         for (const auto& op_ptr : transaction.operations()) {
             switch (op_ptr->type) {

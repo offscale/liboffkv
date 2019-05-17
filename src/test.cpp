@@ -46,16 +46,16 @@ void test_client(std::unique_ptr<Client>&& client)
 
 
     client->commit(
-    {
         {
-            op::Check("/a", 0),
-            op::Check("/tr_key", 0)
-        },
-        {
-            op::create("/tr_key", "value"),
-            op::set("/key", "value_after_txn")
+            {
+                op::Check("/a", 0),
+                op::Check("/tr_key", 0)
+            },
+            {
+                op::create("/tr_key", "value"),
+                op::set("/key", "value_after_txn")
+            }
         }
-    }
     ).get();
 
     std::cerr << client->get("/key").get().value << std::endl;
@@ -102,7 +102,9 @@ void test_get_watches(const ClientConstructor& client_constructor)
 
 void test_get_children(std::unique_ptr<Client>&& client)
 {
-    client->erase("/parent").get(); // this erase seem not to work in ZK, investigate
+    try {
+        client->erase("/parent").get();
+    } catch (NoEntry&) {}
 
     client->create("/parent", "").get();
 
@@ -163,9 +165,10 @@ void test_time_machine()
     );
 
     timeMachine.periodic([l = std::make_shared<int>(0)] {
-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
-            std::cout << ++(*l) << ' ' << ms.count() << std::endl;
-        }, std::chrono::milliseconds(800));
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch());
+        std::cout << ++(*l) << ' ' << ms.count() << std::endl;
+    }, std::chrono::milliseconds(800));
 
     std::this_thread::sleep_for(std::chrono::seconds(4));
 }
@@ -186,7 +189,8 @@ int main()
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "/test/the/prefix", tm);});
 //    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
-    test_client(connect("etcd://127.0.0.1:2379", "", tm));
+//    test_get_children(connect("zk://127.0.0.1:2181", "/some/new/prefix", tm));
+    test_get_children(connect("etcd://127.0.0.1:2379", "/myprefix", tm));
 
 //    test_time_machine();
 }
