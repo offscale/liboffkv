@@ -120,11 +120,16 @@ private:
 
     ETCDHelper helper_;
 
-    const std::string get_path(const std::string& key) const
+    static std::string key_transformer(const std::string& prefix, const std::vector<Key>& seq) {
+        return prefix + static_cast<char>(seq.size()) + seq.rbegin()->get_raw_key();
+    }
+
+    const Key get_path(const std::string& key) const
     {
-        // TODO modification for efficient hierarchy:
-        // https://github.com/etcd-io/zetcd/blob/7f7c6911975f190f71df6ca2d56ae4a9f017c3b8/zketcd_path.go#L32
-        return prefix_ + key;
+        Key res = key;
+        res.set_prefix(prefix_);
+        res.set_transformer(key_transformer);
+        return res;
     }
 
 public:
@@ -154,7 +159,7 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path(key), value, leased] {
-                auto entries = get_entry_sequence(key);
+                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
                 TxnRequest txn;
@@ -249,7 +254,7 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path(key), value]() -> SetResult {
-                auto entries = get_entry_sequence(key);
+                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
                 TxnRequest txn;
@@ -312,7 +317,7 @@ public:
 
         return thread_pool_->async(
             [this, key = get_path(key), value, version]() -> CASResult {
-                auto entries = get_entry_sequence(key);
+                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
                 TxnRequest txn;
