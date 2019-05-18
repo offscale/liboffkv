@@ -120,11 +120,32 @@ private:
 
     ETCDHelper helper_;
 
-    const std::string get_path(const std::string& key) const
+    static std::string key_transformer(const std::string& prefix, const std::vector<Key>& seq)
     {
-        // TODO modification for efficient hierarchy:
-        // https://github.com/etcd-io/zetcd/blob/7f7c6911975f190f71df6ca2d56ae4a9f017c3b8/zketcd_path.go#L32
-        return prefix_ + key;
+        return prefix + static_cast<char>(seq.size()) + seq.rbegin()->get_raw_key();
+    }
+
+    static std::string children_lookup_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    {
+        return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + '/';
+    }
+
+    static std::string children_lookup_end_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    {
+        return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + static_cast<char>('/' + 1);
+    }
+
+    const Key get_path(const std::string& key) const
+    {
+        Key res = key;
+        res.set_prefix(prefix_);
+        res.set_transformer(key_transformer);
+        return res;
+    }
+
+    const std::string detach_prefix(const std::string& full_path) const
+    {
+        return full_path.substr(prefix_.size() + 1);
     }
 
 public:
@@ -154,7 +175,7 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path(key), value, leased] {
-                auto entries = get_entry_sequence(key);
+                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
                 TxnRequest txn;
@@ -195,6 +216,7 @@ public:
                 get_request_failure->set_limit(1);
                 get_request_failure->set_keys_only(true);
 
+                txn.add_failure()->set_allocated_request_range(get_request_failure);
 
                 TxnResponse response;
 
@@ -240,8 +262,49 @@ public:
 
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
-        // TODO
-        return std::async(std::launch::async, [] { return ChildrenResult{}; });
+        return thread_pool_->async([this, key = get_path(key)]() -> ChildrenResult {
+            grpc::ClientContext context;
+
+            TxnRequest txn;
+
+            // check that parent exists
+            auto cmp = txn.add_compare();
+            cmp->set_key(key);
+            cmp->set_target(Compare::CREATE);
+            cmp->set_result(Compare::GREATER);
+            cmp->set_create_revision(0);
+
+            // prepare keys
+            auto key_begin = key;
+            auto key_end = key;
+            key_begin.set_transformer(children_lookup_key_transformer);
+            key_end.set_transformer(children_lookup_end_key_transformer);
+
+            // on success: get all keys with appropriate prefix
+            auto get_request = new RangeRequest();
+            get_request->set_key(key_begin);
+            get_request->set_range_end(key_end);
+            get_request->set_keys_only(true);
+
+            auto requestOp_get = txn.add_success();
+            requestOp_get->set_allocated_request_range(get_request);
+
+            TxnResponse response;
+
+            auto status = stub_->Txn(&context, txn, &response);
+            if (!status.ok())
+                throw ServiceException(status.error_message());
+
+            if (!response.succeeded())
+                throw NoEntry{};
+
+            ChildrenResult result;
+            for (const auto& kv : response.mutable_responses(0)->release_response_range()->kvs()) {
+                result.children.emplace_back(detach_prefix(kv.key()));
+            }
+            return result;
+        });
+//        return std::async(std::launch::async, [] { return ChildrenResult{}; });
     }
 
 
@@ -249,7 +312,7 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path(key), value]() -> SetResult {
-                auto entries = get_entry_sequence(key);
+                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
                 TxnRequest txn;
@@ -312,7 +375,7 @@ public:
 
         return thread_pool_->async(
             [this, key = get_path(key), value, version]() -> CASResult {
-                auto entries = get_entry_sequence(key);
+                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
                 TxnRequest txn;
@@ -420,7 +483,16 @@ public:
 
                 auto request = new DeleteRangeRequest();
                 request->set_key(key);
-                // TODO delete all subtree instead of just one key
+
+                // prepare keys
+                auto key_begin = key;
+                auto key_end = key;
+                key_begin.set_transformer(children_lookup_key_transformer);
+                key_end.set_transformer(children_lookup_end_key_transformer);
+
+                auto chilren_request = new DeleteRangeRequest();
+                chilren_request->set_key(key_begin);
+                chilren_request->set_range_end(key_end);
 
                 TxnRequest txn;
 
@@ -442,6 +514,9 @@ public:
 
                 auto requestOp = txn.add_success();
                 requestOp->set_allocated_request_delete_range(request);
+
+                requestOp = txn.add_success();
+                requestOp->set_allocated_request_delete_range(chilren_request);
 
                 // on failure: check if key exists
                 auto get_request_failure = new RangeRequest();

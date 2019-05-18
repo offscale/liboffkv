@@ -6,6 +6,7 @@
 #include "error.hpp"
 
 
+namespace detail {
 
 bool is_ascii(unsigned char ch)
 {
@@ -68,6 +69,7 @@ bool verify_unit(const std::string& unit)
            unit != "zookeeper";
 }
 
+} // namespace detail
 
 /*
  * /foo/bar/baz => std::vector<std::string>{"/foo", "/foo/bar", "/foo/bar/baz"}
@@ -85,7 +87,7 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
         auto end = std::find(it, key.end(), '/');
         ans.push_back((ans.size() ? ans.back() : std::string()) + "/" + std::string(it, end));
 
-        if (!verify_unit(ans.back()))
+        if (!detail::verify_unit(ans.back()))
             throw InvalidKey{};
 
         if (end == key.end())
@@ -96,3 +98,102 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
 
     return ans;
 }
+
+
+class Key {
+public:
+    using Transformer = std::function<std::string(const std::string&, const std::vector<Key>&)>;
+
+private:
+    std::string key_;
+    std::shared_ptr<std::string> prefix_;
+    Transformer transformer_ = [](const std::string& prefix, const std::vector<Key>& seq) {
+        return prefix + seq.rbegin()->get_raw_key();
+    };
+
+    mutable std::shared_ptr<std::vector<Key>> sequence_ = nullptr;
+    mutable size_t sequence_end_ = 0;
+    mutable std::string transformed_key_;
+
+    Key(std::string key, std::shared_ptr<std::vector<Key>> sequence, const size_t end,
+        std::shared_ptr<std::string> prefix)
+        : key_(std::move(key)), prefix_(std::move(prefix)), sequence_(std::move(sequence)), sequence_end_(end)
+    {}
+
+    void init_sequence() const
+    {
+        if (sequence_)
+            return;
+
+        sequence_ = std::make_shared<std::vector<Key>>();
+        for (const std::string& entry : get_entry_sequence(key_)) {
+            sequence_->push_back(Key{entry, sequence_, sequence_->size() + 1, prefix_});
+            sequence_->rbegin()->set_transformer(transformer_);
+        }
+
+        sequence_end_ = sequence_->size();
+    }
+
+    void perform_transformation() const
+    {
+        if (!transformed_key_.empty())
+            return;
+
+        if (!is_prefix_prepended())
+            throw std::logic_error("Prefix is not set");
+
+        init_sequence();
+        transformed_key_ = transformer_(*prefix_, get_sequence());
+    }
+
+public:
+    Key(std::string key)
+        : key_(std::move(key))
+    {}
+
+    Key(const Key&) = default;
+
+    Key& operator=(const Key&) = default;
+
+    Key(Key&& oth) noexcept
+        : key_(std::move(oth.key_)), prefix_(std::move(oth.prefix_)), transformer_(std::move(oth.transformer_)),
+          sequence_(std::move(oth.sequence_)), sequence_end_(oth.sequence_end_),
+          transformed_key_(std::move(oth.transformed_key_))
+    {}
+
+    Key& operator=(Key&&) = delete; // TODO if needed
+
+    void set_prefix(const std::string& prefix)
+    {
+        prefix_ = std::make_shared<std::string>(prefix);
+        transformed_key_ = "";
+    }
+
+    const bool is_prefix_prepended() const
+    {
+        return static_cast<bool>(prefix_);
+    }
+
+    const std::string& get_raw_key() const
+    {
+        return key_;
+    }
+
+    operator const std::string&() const
+    {
+        perform_transformation();
+        return transformed_key_;
+    }
+
+    std::vector<Key> get_sequence() const
+    {
+        init_sequence();
+        return std::vector<Key>(sequence_->begin(), sequence_->begin() + sequence_end_);
+    }
+
+    void set_transformer(const Transformer& transformer)
+    {
+        transformer_ = transformer;
+        transformed_key_ = "";
+    }
+};
