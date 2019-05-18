@@ -36,20 +36,21 @@ public:
 
     // TODO: use lease
     // TODO in general: use transactions everywhere to check existance before update and so on atomically
-    std::future<void> create(const std::string& key, const std::string& value, bool lease = false)
+    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return this->thread_pool_->async(
                           [this, key, value, lease] {
                               std::unique_lock lock(lock_);
                               try {
-                                  if (kv_->count(key))
-                                      throw EntryExists{};
-                                  kv_->set(key, value);
+                                kv_->commit({
+                                    TxnRequest::checkNotExists(key),
+                                    TxnRequest::set(key, value),
+                                });
                               } liboffkv_catch
                           });
     }
 
-    std::future<ExistsResult> exists(const std::string& key)
+    std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
                           [this, key]() -> ExistsResult {
@@ -61,7 +62,11 @@ public:
                           });
     }
 
-    std::future<SetResult> set(const std::string& key, const std::string& value)
+    std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
+    {
+    }
+
+    std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
         return this->thread_pool_->async(
                           [this, key, value]() -> SetResult {
@@ -78,7 +83,7 @@ public:
                           [this, key, value, version]() -> CASResult {
                               std::unique_lock lock(lock_);
                               try {
-                                  if (version < uint64_t(0))
+                                  if (version == 0)
                                       return {set(key, value).get().version, true};
                                   auto success = kv_->compareSet(key, version, value);
                                   return {kv_->item(ppconsul::withHeaders, key).headers().index(), success};
@@ -100,7 +105,7 @@ public:
                           });
     }
 
-    std::future<void> erase(const std::string& key, uint64_t version) override
+    std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         return this->thread_pool_->async(
                    [this, key, version] {
@@ -119,7 +124,7 @@ public:
     }
 
     // TODO
-    std::future<TransactionResult> commit(const Transaction& transaction)
+    std::future<TransactionResult> commit(const Transaction& transaction) override
     {
         return this->thread_pool_->async([] { return TransactionResult(); });
     }
