@@ -17,21 +17,146 @@
 
 
 class ETCDHelper {
+public:
+    using WatchCreateRequest = etcdserverpb::WatchCreateRequest;
+    using WatchResponse = etcdserverpb::WatchResponse;
+    using Event = mvccpb::Event;
+    using EventType = mvccpb::Event_EventType;
+
+    struct WatchHandler {
+        std::function<bool(const Event&)> process_event;
+        std::function<void(ServiceException)> process_failure;
+    };
+
 private:
     static constexpr size_t default_lease_timeout = 10; // seconds
+    void* tag_init_stream = reinterpret_cast<void*>(1);
+    void* tag_write_finished = reinterpret_cast<void*>(2);
+    void* tag_response_got = reinterpret_cast<void*>(3);
 
     using LeaseGrantRequest = etcdserverpb::LeaseGrantRequest;
     using LeaseGrantResponse = etcdserverpb::LeaseGrantResponse;
     using LeaseKeepAliveRequest = etcdserverpb::LeaseKeepAliveRequest;
     using LeaseKeepAliveResponse = etcdserverpb::LeaseKeepAliveResponse;
+    using WatchRequest = etcdserverpb::WatchRequest;
+    using WatchCancelRequest = etcdserverpb::WatchCancelRequest;
     using LeaseEndpoint = etcdserverpb::Lease;
+    using WatchEndpoint = etcdserverpb::Watch;
 
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
+    std::unique_ptr<WatchEndpoint::Stub> watch_stub_;
     std::shared_ptr<time_machine::ThreadPool<>> thread_pool_;
     std::atomic<int64_t> lease_id_;
     std::mutex lock_;
 
+    grpc::CompletionQueue cq_;
+    bool watch_resolution_thread_running_ = false;
+    std::shared_ptr<grpc::ClientAsyncReaderWriter<WatchRequest, WatchResponse>> watch_stream_;
+    std::shared_ptr<WatchResponse> pending_watch_response_;
+    std::map<int64_t, WatchHandler> watch_handlers_;
+
+    std::shared_ptr<std::promise<void>> current_watch_write_;
+    std::condition_variable write_wait_cv_;
+    std::shared_ptr<WatchHandler> pending_watch_handler_;
+    std::condition_variable create_watch_wait_cv_;
+
+    void fail_all_watches(const ServiceException& exc)
+    {
+        // TODO
+    }
+
+    // assume running under lock
+    void setup_watch_infrastructure()
+    {
+        if (watch_stream_)
+            return;
+
+        grpc::ClientContext ctx;
+        void* tag = reinterpret_cast<void*>(0ul);
+        watch_stream_ = watch_stub_->AsyncWatch(&ctx, &cq_, tag);
+
+        if (!watch_resolution_thread_running_) {
+            watch_resolution_thread_running_ = true;
+            std::thread([this] {
+                this->watch_resolution_loop();
+            }).detach();
+        }
+    }
+
+    void resolve_write()
+    {
+        std::lock_guard lock(lock_);
+
+        current_watch_write_->set_value();
+        current_watch_write_ = nullptr;
+        write_wait_cv_.notify_one();
+    }
+
+    void watch_resolution_loop()
+    {
+        bool succeeded;
+        void* tag;
+        while (cq_.Next(&tag, &succeeded)) {
+            if (!succeeded) {
+                fail_all_watches(ServiceException{"Watch initialization failure"});
+                continue;
+            }
+
+            if (tag == tag_init_stream) {
+                // stream initialized
+                request_read_next_watch_response();
+                continue;
+            }
+
+            if (tag == tag_write_finished) {
+                // resolve write and continue
+                resolve_write();
+                continue;
+            }
+
+            if (tag == tag_response_got) {
+                // resolve response
+                std::lock_guard lock(lock_);
+
+                auto response = pending_watch_response_;
+                pending_watch_response_ = nullptr;
+
+                if (response->created()) {
+                    watch_handlers_[response->watch_id()] = *pending_watch_handler_;
+                    pending_watch_handler_ = nullptr;
+                    create_watch_wait_cv_.notify_one();
+                }
+                if (!(response->created() || response->canceled()))
+                    process_watch_response(*response);
+
+                request_read_next_watch_response();
+            }
+        }
+    }
+
+    const bool process_watch_response(const WatchResponse& response)
+    {
+        const auto& events = response.events();
+        WatchHandler& handler = watch_handlers_[response.watch_id()];
+        for (const Event& event : events) {
+            if (handler.process_event(event)) {
+                
+            }
+        }
+
+        return false;
+    }
+
+    // assume running under lock
+    void request_read_next_watch_response()
+    {
+        if (pending_watch_response_)
+            throw std::logic_error("Inconsistent internal state");
+
+        pending_watch_response_ = std::make_shared<WatchResponse>();
+        watch_stream_->Read(pending_watch_response_.get(), tag_response_got);
+    }
 
     const void setup_lease_renewal(const int64_t lease_id, const uint64_t ttl) const
     {
@@ -72,9 +197,25 @@ private:
         return response.id();
     }
 
+    std::future<void> write_to_watch_stream(const WatchRequest& request, std::unique_lock<std::mutex>& lock)
+    {
+        setup_watch_infrastructure();
+
+        while (current_watch_write_) {
+            write_wait_cv_.wait(lock);
+        }
+
+        current_watch_write_ = std::make_shared<std::promise<void>>();
+
+        watch_stream_->Write(request, tag_write_finished);
+
+        return current_watch_write_->get_future();
+    }
+
 public:
     ETCDHelper(const std::shared_ptr<grpc::Channel>& channel, std::shared_ptr<time_machine::ThreadPool<>> thread_pool)
-        : channel_(channel), lease_stub_(LeaseEndpoint::NewStub(channel)), thread_pool_(std::move(thread_pool))
+        : channel_(channel), lease_stub_(LeaseEndpoint::NewStub(channel)), watch_stub_(WatchEndpoint::NewStub(channel)),
+          thread_pool_(std::move(thread_pool))
     {}
 
     const int64_t get_lease()
@@ -95,6 +236,25 @@ public:
         current = create_lease();
         lease_id_.store(current);
         return current;
+    }
+
+    void create_watch(const WatchCreateRequest& create_req, const WatchHandler& handler)
+    {
+        WatchRequest request;
+        request.set_allocated_create_request(new WatchCreateRequest(create_req));
+
+        std::future<void> watch_write_future;
+
+        {
+            std::unique_lock lock(lock_);
+            while (pending_watch_handler_) {
+                create_watch_wait_cv_.wait(lock);
+            }
+
+            watch_write_future = write_to_watch_stream(request, lock);
+        }
+
+        watch_write_future.get();
     }
 };
 
@@ -238,7 +398,7 @@ public:
     std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return thread_pool_->async(
-            [this, key = get_path(key)]() -> ExistsResult {
+            [this, key = get_path(key), watch]() -> ExistsResult {
                 grpc::ClientContext context;
 
                 RangeRequest request;
@@ -251,11 +411,29 @@ public:
                 if (!status.ok())
                     throw ServiceException(status.error_message());
 
-                if (!response.kvs_size())
-                    return {0, false};
+                bool exists = response.kvs_size();
+
+                std::promise<void> watch_promise
+                std::future<void> watch_future;
+                if (watch) {
+                    ETCDHelper::WatchCreateRequest watch_request;
+                    watch_request.set_key(key);
+                    watch_request.set_start_revision(response.header().revision());
+                    thread_pool_->then(
+                        helper_.create_watch(watch_request),
+                        [exists](std::future<ETCDHelper::Event> event) {
+                            ETCDHelper::Event unwrapped = event.get();
+                            if (unwrapped.type() == ETCDHelper::EventType::Event_EventType_DELETE && exists)
+
+                        }
+                    );
+                }
+
+                if (!exists)
+                    return {0, false, watch_future.share()};
 
                 auto kv = response.kvs(0);
-                return {static_cast<uint64_t>(kv.version()), true};
+                return {static_cast<uint64_t>(kv.version()), true, watch_future.share()};
             });
     }
 

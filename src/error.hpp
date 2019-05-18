@@ -27,6 +27,7 @@
             /*default: __builtin_unreachable();\*/ \
         }\
     }
+    // TODO: catch error on attempt to create children of ephemeral node
 #else
 #define liboffkv_catch_zk
 #endif
