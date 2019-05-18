@@ -42,6 +42,14 @@ private:
         return full_path.substr(prefix_.size());
     }
 
+    void make_recursive_erase_query(zk::multi_op& query, const std::string& path)
+    {
+        for (const auto& child : get_children(path))
+            make_recursive_erase_query(query, child);
+
+        query.push_back(zk::op::erase(from_string(path)));
+    }
+
 public:
     ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(address, std::move(time_machine)),
@@ -277,11 +285,21 @@ public:
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         // TODO: transaction cas loop to avoid NotEmpty errors
-        auto path = get_path(key);
+        while (true) {
+            auto path = get_path(key);
 
-        if (version == 0)
-            return thread_pool_->then(client_.erase(path), call_get_ignore<void>);
-        return thread_pool_->then(client_.erase(path, zk::version(version - 1)), call_get_ignore<void>);
+            zk::multi_op txn;
+            txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
+            make_recursive_erase_query(txn, get_path(key));
+
+            try {
+                auto res = client_.commit(txn).get();
+                return;
+            } catch (...) {
+                if (txn.failed_op_index() == 0)
+                    throw NoEntry{};
+            }
+        }
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction)

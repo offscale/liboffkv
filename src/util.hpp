@@ -26,12 +26,14 @@ auto subtuple_impl(const std::tuple<Ts...>& tpl, std::index_sequence<indices...>
     return std::make_tuple(std::get<from + indices>(tpl)...);
 }
 
+
 template <size_t from, size_t len, typename... Ts>
 auto subtuple(const std::tuple<Ts...>& tpl)
 {
     static_assert(from + len <= sizeof...(Ts));
     return subtuple_impl<from>(tpl, std::make_index_sequence<len>());
 }
+
 
 template <class T1, class Func>
 const std::vector<std::invoke_result_t<std::decay_t<Func>, T1>> map_vector(const std::vector<T1>& vec, Func&& f)
