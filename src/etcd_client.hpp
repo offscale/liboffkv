@@ -163,7 +163,8 @@ private:
         }
     }
 
-    void cancel_watch_m(const int64_t watch_id, std::unique_lock<std::mutex>& lock) {
+    void cancel_watch_m(const int64_t watch_id, std::unique_lock<std::mutex>& lock)
+    {
         auto* cancel_req = new WatchCancelRequest();
         cancel_req->set_watch_id(watch_id);
         WatchRequest req;
@@ -300,7 +301,8 @@ public:
         watch_write_future.get();
     }
 
-    ~ETCDHelper() {
+    ~ETCDHelper()
+    {
         std::unique_lock lock(lock_);
         if (watch_resolution_thread_running_) {
             cq_.Shutdown();
@@ -347,7 +349,8 @@ private:
         return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + static_cast<char>('/' + 1);
     }
 
-    static auto create_watch_failure_handler(const std::shared_ptr<std::promise<void>>& promise) {
+    static auto create_watch_failure_handler(const std::shared_ptr<std::promise<void>>& promise)
+    {
         return [promise = promise](ServiceException exc) mutable {
             promise->set_exception(std::make_exception_ptr(exc));
         };
@@ -502,7 +505,7 @@ public:
 
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
-        return thread_pool_->async([this, key = get_path(key)]() -> ChildrenResult {
+        return thread_pool_->async([this, key = get_path(key), watch]() -> ChildrenResult {
             grpc::ClientContext context;
 
             TxnRequest txn;
@@ -539,12 +542,34 @@ public:
                 throw NoEntry{};
 
             ChildrenResult result;
+            std::set<std::string> raw_keys;
             for (const auto& kv : response.mutable_responses(0)->release_response_range()->kvs()) {
                 result.children.emplace_back(detach_prefix(kv.key()));
+                raw_keys.emplace(kv.key());
             }
+
+            std::future<void> watch_future;
+            if (watch) {
+                auto watch_promise = std::make_shared<std::promise<void>>();
+                watch_future = watch_promise->get_future();
+                ETCDHelper::WatchCreateRequest watch_request;
+                watch_request.set_key(key_begin);
+                watch_request.set_range_end(key_end);
+                watch_request.set_start_revision(response.header().revision());
+                helper_.create_watch(watch_request, {
+                    [promise = watch_promise, old_keys = std::move(raw_keys)](const ETCDHelper::Event& ev) {
+                        bool old = old_keys.find(ev.kv().key()) != old_keys.end();
+                        if ((old && ev.type() == ETCDHelper::EventType::Event_EventType_DELETE) ||
+                            (!old && ev.type() == ETCDHelper::EventType::Event_EventType_PUT))
+                            return true;
+                        return false;
+                    },
+                    create_watch_failure_handler(watch_promise)
+                });
+            }
+            result.watch = watch_future.share();
             return result;
         });
-//        return std::async(std::launch::async, [] { return ChildrenResult{}; });
     }
 
 
