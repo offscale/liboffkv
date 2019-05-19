@@ -15,13 +15,17 @@ private:
 
     Consul client_;
     std::unique_ptr<Kv> kv_;
+
+    std::string prefix_;
+
     mutable std::mutex lock_;
 
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(address, std::move(time_machine)),
           client_(Consul(address)),
-          kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency=ppconsul::Consistency::Consistent))
+          kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency=ppconsul::Consistency::Consistent)),
+          prefix_(prefix)
     {}
 
     ConsulClient() = delete;
@@ -38,14 +42,14 @@ public:
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return this->thread_pool_->async(
-                          [this, key, value, lease] {
+                          [this, key = get_path_(key), value, lease] {
                               std::unique_lock lock(lock_);
                               try {
-                                  auto parent = get_parent(key);
+                                  auto parent = key.get_parent();
                                   std::vector<TxnRequest> requests;
 
                                   if (parent.size())
-                                      requests.push_back(TxnRequest::checkExists(parent));
+                                      requests.push_back(TxnRequest::get(parent));
 
                                   requests.push_back(TxnRequest::checkNotExists(key));
                                   requests.push_back(TxnRequest::set(key, value));
@@ -58,7 +62,7 @@ public:
     std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
-                          [this, key]() -> ExistsResult {
+                          [this, key = get_path_(key)]() -> ExistsResult {
                               std::unique_lock lock(lock_);
                               try {
                                   auto item = kv_->item(ppconsul::withHeaders, key);
@@ -70,29 +74,38 @@ public:
     // TODO
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
+        return this->thread_pool_->async(
+            [this, key = get_path_(key), watch] -> ChildrenResult {
+                std::unique_lock lock(lock_);
+                try {
+                    if (watch) /* TODO */;
+
+                    return {map_vector(kv_->items(get_path_(key)), [](const auto& key_value) {
+                        return detach_prefix_(key_value.key);
+                    })};
+                } liboffkv_catch
+            });
     }
 
     std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
         return this->thread_pool_->async(
-                          [this, key, value]() -> SetResult {
+                          [this, key = get_path_(key), value]() -> SetResult {
                               std::unique_lock lock(lock_);
                               try {
-                                  auto parent = get_parent(key);
+                                  auto parent = key.get_parent();
 
                                   std::vector<TxnRequest> requests;
 
                                   if (parent.size())
-                                      requests.push_back(TxnRequest::checkExists(parent));
+                                      requests.push_back(TxnRequest::get(parent));
 
                                   requests.push_back(TxnRequest::set(key, value));
-//                                  requests.push_back(TxnRequest::get(key));
+
+                                  // is it needed?
+                                  requests.push_back(TxnRequest::get(key));
 
                                   auto result = kv_->commit(requests);
-
-                                  // is it correct?
-                                  if (!result.back().valid())
-                                      throw NoEntry{};
 
                                   return {result.back().modify_index};
                               } liboffkv_catch
@@ -102,7 +115,7 @@ public:
     std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
         return this->thread_pool_->async(
-                          [this, key, value, version]() -> CASResult {
+                          [this, key = get_path_(key), value, version]() -> CASResult {
                               std::unique_lock lock(lock_);
                               try {
                                   if (!version)
@@ -110,12 +123,12 @@ public:
 
                                   auto result = kv_->commit({
                                       TxnRequest::get(key),
-                                      TxnRequest::compareSet(key, version, value),
-//                                      TxnRequest::get(key)
+                                      TxnRequest::compareSet(key, static_cast<uint64_t>(version - 1), value),
+                                      TxnRequest::get(key)
                                   });
 
                                   return {result.back().modify_version,
-                                          /* improve it */ result.front().modify_version != result.back().modify_version};
+                                          /* is it needed? */ result.front().modify_version != result.back().modify_version};
                               } liboffkv_catch
                           });
     }
@@ -123,7 +136,7 @@ public:
     std::future<GetResult> get(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
-                          [this, key]() -> GetResult {
+                          [this, key = get_path_(key)]() -> GetResult {
                               std::unique_lock lock(lock_);
                               try {
                                   auto item = kv_->item(ppconsul::withHeaders, std::move(key));
@@ -137,16 +150,15 @@ public:
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         return this->thread_pool_->async(
-                   [this, key, version] {
+                   [this, key = get_path_(key), version] {
                        std::unique_lock lock(lock_);
                        try {
                            std::vector<TxnRequest> requests;
 
-                           requests.push_back(TxnRequest::checkExists(key));
+                           requests.push_back(TxnRequest::get(key));
                            requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version - 1))
                                                       : TxnRequest::eraseAll(key));
 
-                           // how to understand that check failed?
                            kv_->commit(requests);
                        } liboffkv_catch
                    });
@@ -158,9 +170,9 @@ public:
             std::vector<TxnRequest> requests;
 
             for (const auto& check : transaction.checks())
-                trn.push_back(check.version ? TxnRequest::checkIndex(check.key,
+                trn.push_back(check.version ? TxnRequest::checkIndex(get_path_(check.key),
                                                                      static_cast<uint64_t>(check.version - 1))
-                                            : TxnRequest::checkExists(check.key));
+                                            : TxnRequest::checkExists(get_path_(check.key)));
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
@@ -168,7 +180,7 @@ public:
                     case op::op_type::CREATE: {
                         auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
                         requests.push_back(TxnRequest::set(
-                            create_op_ptr->key,
+                            get_path_(create_op_ptr->key),
                             create_op_ptr->value
                         ));
                         break;
@@ -176,14 +188,14 @@ public:
                     case op::op_type::SET: {
                         auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
                         requests.push_back(TxnRequest::set(
-                            create_op_ptr->key,
+                            get_path_(create_op_ptr->key),
                             create_op_ptr->value
                         ));
                         break;
                     }
                     case op::op_type::ERASE: {
                         auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                        requests.push_back(TxnRequest::eraseAll(erase_op_ptr->key));
+                        requests.push_back(TxnRequest::eraseAll(get_path_(erase_op_ptr->key)));
                         break;
                     }
                     default:
@@ -194,7 +206,6 @@ public:
             auto commit_result = kv_->commit(requests);
             TransactionResult result;
 
-            // TODO
             for (const auto& key_value : result)
                 result.push_back(SetResult{key_value.modify_version});
 

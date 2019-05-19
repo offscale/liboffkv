@@ -334,39 +334,38 @@ private:
 
     ETCDHelper helper_;
 
-    static std::string key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    static
+    std::string key_transformer(const std::string& prefix, const std::vector<Key>& seq)
     {
         return prefix + static_cast<char>(seq.size()) + seq.rbegin()->get_raw_key();
     }
 
-    static std::string children_lookup_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    static
+    std::string children_lookup_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
     {
         return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + '/';
     }
 
-    static std::string children_lookup_end_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    static
+    std::string children_lookup_end_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
     {
         return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + static_cast<char>('/' + 1);
     }
 
-    static auto create_watch_failure_handler(const std::shared_ptr<std::promise<void>>& promise)
+    static
+    auto create_watch_failure_handler(const std::shared_ptr<std::promise<void>>& promise)
     {
         return [promise = promise](ServiceException exc) mutable {
             promise->set_exception(std::make_exception_ptr(exc));
         };
     }
 
-    const Key get_path(const std::string& key) const
+    const Key get_path_(const std::string& key) const
     {
         Key res = key;
         res.set_prefix(prefix_);
         res.set_transformer(key_transformer);
         return res;
-    }
-
-    const std::string detach_prefix(const std::string& full_path) const
-    {
-        return full_path.substr(prefix_.size() + 1);
     }
 
 public:
@@ -395,7 +394,7 @@ public:
     std::future<void> create(const std::string& key, const std::string& value, bool leased = false) override
     {
         return thread_pool_->async(
-            [this, key = get_path(key), value, leased] {
+            [this, key = get_path_(key), value, leased] {
                 auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
@@ -459,7 +458,7 @@ public:
     std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return thread_pool_->async(
-            [this, key = get_path(key), watch]() -> ExistsResult {
+            [this, key = get_path_(key), watch]() -> ExistsResult {
                 grpc::ClientContext context;
 
                 RangeRequest request;
@@ -505,7 +504,7 @@ public:
 
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
-        return thread_pool_->async([this, key = get_path(key), watch]() -> ChildrenResult {
+        return thread_pool_->async([this, key = get_path_(key), watch]() -> ChildrenResult {
             grpc::ClientContext context;
 
             TxnRequest txn;
@@ -544,7 +543,7 @@ public:
             ChildrenResult result;
             std::set<std::string> raw_keys;
             for (const auto& kv : response.mutable_responses(0)->release_response_range()->kvs()) {
-                result.children.emplace_back(detach_prefix(kv.key()));
+                result.children.emplace_back(detach_prefix_(kv.key()));
                 raw_keys.emplace(kv.key());
             }
 
@@ -576,7 +575,7 @@ public:
     std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
         return thread_pool_->async(
-            [this, key = get_path(key), value]() -> SetResult {
+            [this, key = get_path_(key), value]() -> SetResult {
                 auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
@@ -639,7 +638,7 @@ public:
             });
 
         return thread_pool_->async(
-            [this, key = get_path(key), value, version]() -> CASResult {
+            [this, key = get_path_(key), value, version]() -> CASResult {
                 auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
@@ -718,7 +717,7 @@ public:
     std::future<GetResult> get(const std::string& key, bool watch = false) override
     {
         return thread_pool_->async(
-            [this, key = get_path(key), watch]() -> GetResult {
+            [this, key = get_path_(key), watch]() -> GetResult {
                 grpc::ClientContext context;
 
                 RangeRequest request;
@@ -759,7 +758,7 @@ public:
     std::future<void> erase(const std::string& key, uint64_t version = 0)
     {
         return thread_pool_->async(
-            [this, key = get_path(key), version] {
+            [this, key = get_path_(key), version] {
                 grpc::ClientContext context;
 
                 auto request = new DeleteRangeRequest();
@@ -826,7 +825,7 @@ public:
         return thread_pool_->async(
             [this, transaction]() -> TransactionResult {
                 grpc::ClientContext context;
-                std::vector<int> create_indices, set_indices;
+                std::vector<int> set_indices;
                 int _i = 0;
 
                 TxnRequest txn;
@@ -857,8 +856,6 @@ public:
                             auto requestOP = txn.add_success();
                             requestOP->set_allocated_request_put(request);
 
-                            create_indices.push_back(_i + 1);
-
                             _i += 2;
                             break;
                         }
@@ -879,7 +876,7 @@ public:
                             auto get_requestOP = txn.add_success();
                             get_requestOP->set_allocated_request_range(get_request);
 
-                            create_indices.push_back(_i + 1);
+                            set_indices.push_back(_i + 1);
 
                             _i += 2;
 
@@ -910,34 +907,14 @@ public:
                     throw ServiceException(status.error_message());
 
                 if (!response.succeeded())
-                    return TransactionResult();
+                    throw TransactionFailed{};
 
                 TransactionResult result;
 
-                int i = 0, j = 0;
-                while (i < create_indices.size() && j < set_indices.size())
-                    if (create_indices[i] < set_indices[j]) {
-                        result.push_back(CreateResult{});
-                        ++i;
-                    } else {
-                        result.push_back(SetResult{static_cast<uint64_t>(
-                                                       response.mutable_responses(
-                                                               set_indices[j])->release_response_range()
-                                                           ->kvs(0).version())});
-                        ++j;
-                    }
-
-                while (i < create_indices.size()) {
-                    result.push_back(CreateResult{});
-                    ++i;
-                }
-
-                while (j < set_indices.size()) {
+                for (int j = 0; j < set_indices.size(); ++j)
                     result.push_back(SetResult{static_cast<uint64_t>(
                                                    response.mutable_responses(set_indices[j])->release_response_range()
                                                        ->kvs(0).version())});
-                    ++j;
-                }
 
                 return result;
             });

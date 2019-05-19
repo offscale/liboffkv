@@ -20,14 +20,20 @@
                 throw NoEntry{};\
             case zk::error_code::entry_exists:\
                 throw EntryExists{};\
+            case zk::error_code::connection_loss:\
+                throw ConnectionLoss{};\
+            case zk::error_code::no_children_for_ephemerals:\
+                throw NoChildrenForEphemeral{};\
+            case zk::error_code::transaction_failed:\
+                throw TransactionFailed{e.failed_op_index()};
             case zk::error_code::version_mismatch:\
+            case zk::error_code::not_empty:\
                 throw e;\
             default: \
                 throw e; \
             /*default: __builtin_unreachable();\*/ \
         }\
     }
-    // TODO: catch error on attempt to create children of ephemeral node
 #else
 #define liboffkv_catch_zk
 #endif
@@ -84,11 +90,46 @@ public:
 
 
 class EntryExists : public std::exception {
+public:
     const char* what() const noexcept override
     {
         return "entry exists";
     }
 };
+
+
+class NoChildrenForEphemeral : public std::exception {
+public:
+    const char* what() const noexcept override
+    {
+        return "attempt to create children of ephemeral node";
+    }
+};
+
+class ConnectionLoss : public std::exception {
+public:
+    const char* what() const noexcept override
+    {
+        return "connection loss";
+    }
+};
+
+class TransactionFailed : public std::exception {
+private:
+    size_t _op_index;
+
+public:
+    TransactionFailed(size_t index) noexcept
+        : _op_index(index)
+    {}
+
+    const char* what() const noexcept override
+    {
+        return (std::string("transaction failed on ") + std::to_string(_op_index) + " operation").c_str();
+    }
+};
+
+
 
 
 class ServiceException : public std::runtime_error {

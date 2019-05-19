@@ -32,19 +32,9 @@ private:
         return {buf.begin(), buf.end()};
     }
 
-    const std::string get_path(const std::string& key) const
-    {
-        return prefix_ + key;
-    }
-
-    const std::string detach_prefix(const std::string& full_path) const
-    {
-        return full_path.substr(prefix_.size());
-    }
-
     void make_recursive_erase_query(zk::multi_op& query, const std::string& path)
     {
-        for (const auto& child : get_children(path, true).get().children)
+        for (const auto& child : client_.get_children(path).get().children())
             make_recursive_erase_query(query, child);
 
         query.push_back(zk::op::erase(path));
@@ -80,7 +70,7 @@ public:
     {
         return thread_pool_->then(
             client_.create(
-                get_path(key),
+                get_path_(key),
                 from_string(value),
                 !lease ? zk::create_mode::normal : zk::create_mode::ephemeral
             ),
@@ -92,7 +82,7 @@ public:
     {
         if (watch)
             return thread_pool_->then(
-                client_.watch_exists(get_path(key)),
+                client_.watch_exists(get_path_(key)),
                 [tp = thread_pool_](std::future<zk::watch_exists_result>&& result) -> ExistsResult {
                     zk::watch_exists_result unwrapped = call_get(std::move(result));
                     auto stat = unwrapped.initial().stat();
@@ -105,7 +95,7 @@ public:
                 });
 
         return thread_pool_->then(
-            client_.exists(get_path(key)),
+            client_.exists(get_path_(key)),
             [](std::future<zk::exists_result>&& result) -> ExistsResult {
                 zk::exists_result unwrapped = call_get(std::move(result));
                 auto stat = unwrapped.stat();
@@ -121,24 +111,24 @@ public:
     {
         if (watch)
             return thread_pool_->then(
-                client_.watch_children(get_path(key)),
+                client_.watch_children(get_path_(key)),
                 [this](std::future<zk::watch_children_result>&& result) -> ChildrenResult {
                     zk::watch_children_result unwrapped = call_get(std::move(result));
                     const std::vector<std::string>& raw_children = unwrapped.initial().children();
                     return {
-                        map_vector(raw_children, [this](const auto& child) { return detach_prefix(child); }),
+                        map_vector(raw_children, [this](const auto& child) { return detach_prefix_(child); }),
                         thread_pool_->then(std::move(unwrapped.next()), call_get_ignore<zk::event>)
                     };
                 }
             );
 
         return thread_pool_->then(
-            client_.get_children(get_path(key)),
+            client_.get_children(get_path_(key)),
             [this](std::future<zk::get_children_result>&& result) -> ChildrenResult {
                 zk::get_children_result unwrapped = call_get(std::move(result));
                 const std::vector<std::string>& raw_children = unwrapped.children();
                 return {
-                    map_vector(raw_children, [this](const auto& child) { return detach_prefix(child); })
+                    map_vector(raw_children, [this](const auto& child) { return detach_prefix_(child); })
                 };
             }
         );
@@ -148,7 +138,7 @@ public:
     // At least it seems to be so...
     std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
-        auto path = get_path(key);
+        auto path = get_path_(key);
 
         return thread_pool_->then(
             client_.create(path, from_string(value)),
@@ -181,7 +171,7 @@ public:
     // Same as set: transactions aren't necessary
     std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
-        auto path = get_path(key);
+        auto path = get_path_(key);
 
         if (!version) {
             return thread_pool_->then(
@@ -217,7 +207,7 @@ public:
 
         return thread_pool_->then(
             thread_pool_->then(
-                client_.set(get_path(key), from_string(value), zk::version(version - 1)),
+                client_.set(get_path_(key), from_string(value), zk::version(version - 1)),
                 [this, version, path](std::future<zk::set_result>&& result) -> CASResult {
                     try {
                         return {static_cast<uint64_t>(result.get().stat().data_version.value + 1), true};
@@ -260,7 +250,7 @@ public:
     {
         if (watch) {
             return thread_pool_->then(
-                client_.watch(get_path(key)),
+                client_.watch(get_path_(key)),
                 [tp = thread_pool_](std::future<zk::watch_result>&& result) -> GetResult {
                     auto full_res = call_get(std::move(result));
                     auto res = full_res.initial();
@@ -274,7 +264,7 @@ public:
         }
 
         return thread_pool_->then(
-            client_.get(get_path(key)),
+            client_.get(get_path_(key)),
             [](std::future<zk::get_result>&& result) -> GetResult {
                 auto res = call_get(std::move(result));
                 return {static_cast<uint64_t>(res.stat().data_version.value + 1), to_string(res.data())};
@@ -287,11 +277,11 @@ public:
         // TODO: transaction cas loop to avoid NotEmpty errors
         thread_pool_->async([this, key, version] {
             while (true) {
-                auto path = get_path(key);
+                auto path = get_path_(key);
 
                 zk::multi_op txn;
                 txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
-                make_recursive_erase_query(txn, get_path(key));
+                make_recursive_erase_query(txn, get_path_(key));
 
                 try {
                     auto res = client_.commit(txn).get();
@@ -310,7 +300,7 @@ public:
 
         for (const auto& check : transaction.checks())
             trn.push_back(
-                zk::op::check(get_path(check.key),
+                zk::op::check(get_path_(check.key),
                               check.version ? zk::version(check.version - 1) : zk::version::any()));
 
         for (const auto& op_ptr : transaction.operations()) {
@@ -318,7 +308,7 @@ public:
                 case op::op_type::CREATE: {
                     auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
                     trn.push_back(zk::op::create(
-                        get_path(create_op_ptr->key),
+                        get_path_(create_op_ptr->key),
                         from_string(create_op_ptr->value),
                         (!create_op_ptr->leased ? zk::create_mode::normal : zk::create_mode::ephemeral)
                     ));
@@ -326,12 +316,12 @@ public:
                 }
                 case op::op_type::SET: {
                     auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
-                    trn.push_back(zk::op::set(get_path(set_op_ptr->key), from_string(set_op_ptr->value)));
+                    trn.push_back(zk::op::set(get_path_(set_op_ptr->key), from_string(set_op_ptr->value)));
                     break;
                 }
                 case op::op_type::ERASE: {
                     auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                    trn.push_back(zk::op::erase(get_path(erase_op_ptr->key)));
+                    make_recursive_erase_query(trn, get_path_(erase_op_ptr->key));
                     break;
                 }
                 default:
@@ -346,12 +336,10 @@ public:
 
             for (const auto& res : multi_res_unwrapped) {
                 switch (res.type()) {
-                    case zk::op_type::create:
-                        result.push_back(CreateResult{});
-                        break;
                     case zk::op_type::set:
                         result.push_back(SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)});
                         break;
+                    case zk::op_type::create:
                     case zk::op_type::check:
                     case zk::op_type::erase:
                     default:

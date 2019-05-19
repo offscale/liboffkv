@@ -196,6 +196,11 @@ public:
         return std::vector<Key>(sequence_->begin(), sequence_->begin() + sequence_end_);
     }
 
+    std::string get_parent() const
+    {
+        return sequence_end_ > 1 ? sequence_[sequence_end_ - 1] : "";
+    }
+
     void set_transformer(const Transformer& transformer)
     {
         transformer_ = transformer;

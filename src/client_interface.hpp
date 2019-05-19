@@ -14,6 +14,19 @@ protected:
     using ThreadPool = time_machine::ThreadPool<>;
     std::shared_ptr<ThreadPool> thread_pool_;
     std::string address_;
+    std::string prefix_;
+
+    const Key get_path_(const std::string& key) const
+    {
+        Key res = key;
+        res.set_prefix(prefix_);
+        return res;
+    }
+
+    const std::string detach_prefix_(const std::string& full_path) const
+    {
+        return full_path.substr(prefix_.size() + 1);
+    }
 
 public:
     Client(const std::string&, std::shared_ptr<ThreadPool> time_machine = nullptr)
