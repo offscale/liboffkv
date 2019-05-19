@@ -99,6 +99,11 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
     return ans;
 }
 
+std::string get_parent(const std::string& key)
+{
+    return key.substr(0, key.size() - (std::find(key.rbegin(), key.rend(), '/') - key.rbegin() + 1));
+}
+
 
 class Key {
 public:

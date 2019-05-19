@@ -44,10 +44,10 @@ private:
 
     void make_recursive_erase_query(zk::multi_op& query, const std::string& path)
     {
-        for (const auto& child : get_children(path))
+        for (const auto& child : get_children(path, true).get().children)
             make_recursive_erase_query(query, child);
 
-        query.push_back(zk::op::erase(from_string(path)));
+        query.push_back(zk::op::erase(path));
     }
 
 public:
@@ -285,21 +285,23 @@ public:
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         // TODO: transaction cas loop to avoid NotEmpty errors
-        while (true) {
-            auto path = get_path(key);
+        thread_pool_->async([this, key, version] {
+            while (true) {
+                auto path = get_path(key);
 
-            zk::multi_op txn;
-            txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
-            make_recursive_erase_query(txn, get_path(key));
+                zk::multi_op txn;
+                txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
+                make_recursive_erase_query(txn, get_path(key));
 
-            try {
-                auto res = client_.commit(txn).get();
-                return;
-            } catch (...) {
-                if (txn.failed_op_index() == 0)
-                    throw NoEntry{};
+                try {
+                    auto res = client_.commit(txn).get();
+                    return;
+                } catch (zk::transaction_failed& e) {
+                    if (e.failed_op_index() == 0)
+                        throw NoEntry{};
+                }
             }
-        }
+        });
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction)

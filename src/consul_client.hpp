@@ -5,7 +5,7 @@
 #include "ppconsul/kv.h"
 
 #include "client_interface.hpp"
-
+#include "key.hpp"
 
 
 class ConsulClient : public Client {
@@ -35,17 +35,22 @@ public:
 
 
     // TODO: use lease
-    // TODO in general: use transactions everywhere to check existance before update and so on atomically
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return this->thread_pool_->async(
                           [this, key, value, lease] {
                               std::unique_lock lock(lock_);
                               try {
-                                kv_->commit({
-                                    TxnRequest::checkNotExists(key),
-                                    TxnRequest::set(key, value),
-                                });
+                                  auto parent = get_parent(key);
+                                  std::vector<TxnRequest> requests;
+
+                                  if (parent.size())
+                                      requests.push_back(TxnRequest::checkExists(parent));
+
+                                  requests.push_back(TxnRequest::checkNotExists(key));
+                                  requests.push_back(TxnRequest::set(key, value));
+
+                                  kv_->commit(requests);
                               } liboffkv_catch
                           });
     }
@@ -62,6 +67,7 @@ public:
                           });
     }
 
+    // TODO
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
     }
@@ -72,7 +78,23 @@ public:
                           [this, key, value]() -> SetResult {
                               std::unique_lock lock(lock_);
                               try {
-                                  return {kv_->item(ppconsul::withHeaders, key).headers().index()};
+                                  auto parent = get_parent(key);
+
+                                  std::vector<TxnRequest> requests;
+
+                                  if (parent.size())
+                                      requests.push_back(TxnRequest::checkExists(parent));
+
+                                  requests.push_back(TxnRequest::set(key, value));
+//                                  requests.push_back(TxnRequest::get(key));
+
+                                  auto result = kv_->commit(requests);
+
+                                  // is it correct?
+                                  if (!result.back().valid())
+                                      throw NoEntry{};
+
+                                  return {result.back().modify_index};
                               } liboffkv_catch
                           });
     }
@@ -83,10 +105,17 @@ public:
                           [this, key, value, version]() -> CASResult {
                               std::unique_lock lock(lock_);
                               try {
-                                  if (version == 0)
+                                  if (!version)
                                       return {set(key, value).get().version, true};
-                                  auto success = kv_->compareSet(key, version, value);
-                                  return {kv_->item(ppconsul::withHeaders, key).headers().index(), success};
+
+                                  auto result = kv_->commit({
+                                      TxnRequest::get(key),
+                                      TxnRequest::compareSet(key, version, value),
+//                                      TxnRequest::get(key)
+                                  });
+
+                                  return {result.back().modify_version,
+                                          /* improve it */ result.front().modify_version != result.back().modify_version};
                               } liboffkv_catch
                           });
     }
@@ -111,21 +140,65 @@ public:
                    [this, key, version] {
                        std::unique_lock lock(lock_);
                        try {
-                           auto item = kv_->item(ppconsul::withHeaders, key);
-                           if (!item.data().valid())
-                               throw NoEntry{};
+                           std::vector<TxnRequest> requests;
 
-                           if (version < uint64_t(0))
-                               kv_->erase(key);
-                           else
-                               kv_->compareErase(key, version);
+                           requests.push_back(TxnRequest::checkExists(key));
+                           requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version - 1))
+                                                      : TxnRequest::eraseAll(key));
+
+                           // how to understand that check failed?
+                           kv_->commit(requests);
                        } liboffkv_catch
                    });
     }
 
-    // TODO
     std::future<TransactionResult> commit(const Transaction& transaction) override
     {
-        return this->thread_pool_->async([] { return TransactionResult(); });
+        return thread_pool_->async([this, transaction] {
+            std::vector<TxnRequest> requests;
+
+            for (const auto& check : transaction.checks())
+                trn.push_back(check.version ? TxnRequest::checkIndex(check.key,
+                                                                     static_cast<uint64_t>(check.version - 1))
+                                            : TxnRequest::checkExists(check.key));
+
+            for (const auto& op_ptr : transaction.operations()) {
+                switch (op_ptr->type) {
+                    // fix it
+                    case op::op_type::CREATE: {
+                        auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
+                        requests.push_back(TxnRequest::set(
+                            create_op_ptr->key,
+                            create_op_ptr->value
+                        ));
+                        break;
+                    }
+                    case op::op_type::SET: {
+                        auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
+                        requests.push_back(TxnRequest::set(
+                            create_op_ptr->key,
+                            create_op_ptr->value
+                        ));
+                        break;
+                    }
+                    case op::op_type::ERASE: {
+                        auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
+                        requests.push_back(TxnRequest::eraseAll(erase_op_ptr->key));
+                        break;
+                    }
+                    default:
+                        __builtin_unreachable();
+                }
+            };
+
+            auto commit_result = kv_->commit(requests);
+            TransactionResult result;
+
+            // TODO
+            for (const auto& key_value : result)
+                result.push_back(SetResult{key_value.modify_version});
+
+            return result;
+        });
     }
 };
