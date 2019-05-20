@@ -36,6 +36,23 @@ if (${ENABLE_ETCD})
 endif()
 
 
+# google tests
+enable_testing()
+find_package(GTest REQUIRED)
+include_directories(${GTEST_INCLUDE_DIRS})
+add_executable(gtests src/tests/gtests.cpp)
+
+if(NOT MSVC)
+    set(PThreadLib -pthread)
+endif()
+
+target_link_libraries(gtests ${GTEST_BOTH_LIBRARIES})
+
+target_link_libraries(gtests liboffkv ${PThreadLib})
+
+add_test(NAME    registerer_test
+        COMMAND registerer_test)
+
 add_executable(test_lib src/test.cpp)
 target_link_libraries(test_lib liboffkv)
 
