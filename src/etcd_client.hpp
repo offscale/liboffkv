@@ -368,9 +368,14 @@ private:
         return res;
     }
 
+    const std::string detach_prefix_(const std::string& full_path) const
+    {
+        return full_path.substr(prefix_.size() + 1);
+    }
+
 public:
     ETCDClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> tm)
-        : Client(address, std::move(tm)),
+        : Client(std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
           stub_(KV::NewStub(channel_)),
           prefix_(prefix),
@@ -907,7 +912,8 @@ public:
                     throw ServiceException(status.error_message());
 
                 if (!response.succeeded())
-                    throw TransactionFailed{};
+                    // TODO
+                    throw TransactionFailed{0};
 
                 TransactionResult result;
 

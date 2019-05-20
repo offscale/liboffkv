@@ -198,7 +198,7 @@ public:
 
     std::string get_parent() const
     {
-        return sequence_end_ > 1 ? sequence_[sequence_end_ - 1] : "";
+        return sequence_end_ > 1 ? static_cast<std::string>((*sequence_)[sequence_end_ - 2]) : "";
     }
 
     void set_transformer(const Transformer& transformer)

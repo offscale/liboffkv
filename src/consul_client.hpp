@@ -12,6 +12,7 @@ class ConsulClient : public Client {
 private:
     using Consul = ppconsul::Consul;
     using Kv = ppconsul::kv::Kv;
+    using TxnRequest = ppconsul::kv::TxnRequest;
 
     Consul client_;
     std::unique_ptr<Kv> kv_;
@@ -20,9 +21,22 @@ private:
 
     mutable std::mutex lock_;
 
+
+    const Key get_path_(const std::string& key) const
+    {
+        Key res = key;
+        res.set_prefix(prefix_);
+        return res;
+    }
+
+    const std::string detach_prefix_(const std::string& full_path) const
+    {
+        return full_path.substr(prefix_.size() + 1);
+    }
+
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client(address, std::move(time_machine)),
+        : Client(std::move(time_machine)),
           client_(Consul(address)),
           kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency=ppconsul::Consistency::Consistent)),
           prefix_(prefix)
