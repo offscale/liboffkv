@@ -239,6 +239,8 @@ public:
                 passed = std::chrono::duration_cast<Ms>(now - *start_time);
                 if (passed >= duration_ms)
                     return true;
+
+                return false;
             };
         self->second =
             [self, start_time, duration = duration_ms, func = std::forward<Function>(func), queue = queue_]() mutable {

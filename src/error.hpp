@@ -4,6 +4,7 @@
 
 #include <exception>
 #include <future>
+#include <string.h>
 
 
 
@@ -116,16 +117,22 @@ public:
 
 class TransactionFailed : public std::exception {
 private:
-    size_t _op_index;
+    size_t op_index_;
+    std::string msg_;
 
 public:
     TransactionFailed(size_t index) noexcept
-        : _op_index(index)
+        : op_index_(index), msg_(std::string("transaction failed on ") + std::to_string(op_index_) + " operation")
     {}
 
     const char* what() const noexcept override
     {
-        return (std::string("transaction failed on ") + std::to_string(_op_index) + " operation").c_str();
+        return msg_.c_str();
+    }
+
+    size_t failed_operation_index() const
+    {
+        return op_index_;
     }
 };
 

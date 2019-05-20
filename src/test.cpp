@@ -187,10 +187,12 @@ int main()
 {
 //    test_path_parse();
 //    test_get_watches([tm = tm]{return connect("zk://127.0.0.1:2181", "", tm);});
-    test_get_watches([tm = tm]{return connect("etcd://127.0.0.1:2379", "/test/the/prefix", tm);});
+//    test_get_watches([tm = tm]{return connect("etcd://127.0.0.1:2379", "/test/the/prefix", tm);});
 //    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
 //    test_get_children(connect("zk://127.0.0.1:2181", "/some/new/prefix", tm));
 //    test_get_children(connect("etcd://127.0.0.1:2379", "/myprefix", tm));
-
+//    test_client(connect("etcd://127.0.0.1:2379", "/kek", tm));
+//    test_client(connect("consul://127.0.0.1:8500", "/kek", tm));
+    test_client(connect("zk://127.0.0.1:2181", "/kek", tm));
 //    test_time_machine();
 }

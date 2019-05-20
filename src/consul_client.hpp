@@ -89,12 +89,12 @@ public:
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
-            [this, key = get_path_(key), watch] -> ChildrenResult {
+            [this, key = get_path_(key), watch]() -> ChildrenResult {
                 std::unique_lock lock(lock_);
                 try {
                     if (watch) /* TODO */;
 
-                    return {map_vector(kv_->items(get_path_(key)), [](const auto& key_value) {
+                    return {map_vector(kv_->items(get_path_(key)), [this](const auto& key_value) {
                         return detach_prefix_(key_value.key);
                     })};
                 } liboffkv_catch
@@ -121,7 +121,7 @@ public:
 
                                   auto result = kv_->commit(requests);
 
-                                  return {result.back().modify_index};
+                                  return {result.back().modifyIndex};
                               } liboffkv_catch
                           });
     }
@@ -141,8 +141,8 @@ public:
                                       TxnRequest::get(key)
                                   });
 
-                                  return {result.back().modify_version,
-                                          /* is it needed? */ result.front().modify_version != result.back().modify_version};
+                                  return {result.back().modifyIndex,
+                                          /* is it needed? */ result.front().modifyIndex != result.back().modifyIndex};
                               } liboffkv_catch
                           });
     }
@@ -184,9 +184,9 @@ public:
             std::vector<TxnRequest> requests;
 
             for (const auto& check : transaction.checks())
-                trn.push_back(check.version ? TxnRequest::checkIndex(get_path_(check.key),
+                requests.push_back(check.version ? TxnRequest::checkIndex(get_path_(check.key),
                                                                      static_cast<uint64_t>(check.version - 1))
-                                            : TxnRequest::checkExists(get_path_(check.key)));
+                                                 : TxnRequest::get(get_path_(check.key)));
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
@@ -202,8 +202,8 @@ public:
                     case op::op_type::SET: {
                         auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
                         requests.push_back(TxnRequest::set(
-                            get_path_(create_op_ptr->key),
-                            create_op_ptr->value
+                            get_path_(set_op_ptr->key),
+                            set_op_ptr->value
                         ));
                         break;
                     }
@@ -220,8 +220,8 @@ public:
             auto commit_result = kv_->commit(requests);
             TransactionResult result;
 
-            for (const auto& key_value : result)
-                result.push_back(SetResult{key_value.modify_version});
+            for (const auto& key_value : commit_result)
+                result.push_back(SetResult{key_value.modifyIndex});
 
             return result;
         });
