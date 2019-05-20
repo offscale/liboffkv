@@ -1,8 +1,8 @@
+#pragma once
+
 #include <utility>
 
 
-
-#pragma once
 
 #include <string>
 
@@ -53,11 +53,6 @@ struct CASResult : Result {
     explicit operator bool() const
     {
         return success;
-    }
-
-    bool operator!() const
-    {
-        return !success;
     }
 };
 
