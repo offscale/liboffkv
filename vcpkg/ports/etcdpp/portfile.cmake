@@ -2,11 +2,11 @@ include(vcpkg_common_functions)
 
 # set(VCPKG_BUILD_TYPE release)
 
-vcpkg_from_git(
+vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    URL git@github.com:SamuelMarks/libetcd-cpp.git
-    REF 65a2fe55d427fb6511c419e34b607b57d667ec67
-    SHA512 db5aa4365eadbe3ff9f1549a35162c197fa821f4bf759a568694747aed1dda4902852a2472f22bb43e2ffea48698653e94be18503e9ac55691a8421ce8e23e7b
+    REPO raid-7/libetcd-cpp
+    REF 20db6e3a941c421e3d50d1ad5dd66197bd8f7e4c
+    SHA512 06aaa6b8737b4df5af97345669c12fa5288003958a7591840d31ce0b506ba3a415b0491d392033a967b7fbc44b7a8ec33e442baa3cd0a2ec97c03697ad581123
 )
 
 # file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
