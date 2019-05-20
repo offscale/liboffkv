@@ -12,6 +12,10 @@ vcpkg_from_github(
 
 file(READ "${CMAKE_CURRENT_LIST_DIR}/CMakeInstall.txt" INSTALLATION_CODE)
 file(WRITE "${SOURCE_PATH}/CMakeLists.txt" "${INSTALLATION_CODE}")
+file(GLOB_RECURSE test_files LIST_DIRECTORIES false "${SOURCE_PATH}/src/zk/*_tests.cpp")
+if (${test_files})
+	file(REMOVE ${test_files})
+endif()
 
 vcpkg_configure_cmake(
     SOURCE_PATH ${SOURCE_PATH}
