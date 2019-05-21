@@ -6,6 +6,7 @@
 #include "operation.hpp"
 #include "result.hpp"
 #include "util.hpp"
+#include "key.hpp"
 
 
 

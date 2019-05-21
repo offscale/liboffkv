@@ -47,7 +47,7 @@ private:
     std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
     std::unique_ptr<WatchEndpoint::Stub> watch_stub_;
     std::shared_ptr<time_machine::ThreadPool<>> thread_pool_;
-    std::atomic<int64_t> lease_id_;
+    std::atomic<int64_t> lease_id_{0};
     std::mutex lock_;
 
     grpc::CompletionQueue cq_;
