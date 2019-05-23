@@ -10,6 +10,8 @@
 
 class ConsulClient : public Client {
 private:
+    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::minutes(1);
+
     using Consul = ppconsul::Consul;
     using Kv = ppconsul::kv::Kv;
     using TxnRequest = ppconsul::kv::TxnRequest;
@@ -33,6 +35,14 @@ private:
     {
         return full_path.substr(prefix_.size() + 1);
     }
+
+    std::future<void> get_watch_future_(const std::string& key) const
+    {
+        return std::async([this, key] {
+            uint64_t tmp;
+            kv_->item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, tmp});
+        });
+    };
 
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
@@ -76,27 +86,39 @@ public:
     std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
-                          [this, key = get_path_(key)]() -> ExistsResult {
+                          [this, key = get_path_(key), watch]() -> ExistsResult {
                               std::unique_lock lock(lock_);
                               try {
                                   auto item = kv_->item(ppconsul::withHeaders, key);
-                                  return {item.headers().index(), item.data().valid()};
+
+                                  std::future<void> watch_future;
+                                  if (watch)
+                                      watch_future = get_watch_future_(key);
+
+                                  return {item.headers().index(), item.data().valid(), watch_future.share()};
+
                               } liboffkv_catch
                           });
     }
 
-    // TODO
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
             [this, key = get_path_(key), watch]() -> ChildrenResult {
                 std::unique_lock lock(lock_);
                 try {
-                    if (watch) /* TODO */;
 
-                    return {map_vector(kv_->items(get_path_(key)), [this](const auto& key_value) {
-                        return detach_prefix_(key_value.key);
-                    })};
+                    std::future<void> watch_future;
+                    if (watch)
+                        watch_future = get_watch_future_(key);
+
+                    return {
+                        map_vector(kv_->items(get_path_(key)),
+                            [this](const auto& key_value) {
+                                return detach_prefix_(key_value.key);
+                            }),
+                        watch_future.share()
+                    };
                 } liboffkv_catch
             });
     }
@@ -150,13 +172,18 @@ public:
     std::future<GetResult> get(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
-                          [this, key = get_path_(key)]() -> GetResult {
+                          [this, key = get_path_(key), watch]() -> GetResult {
                               std::unique_lock lock(lock_);
                               try {
                                   auto item = kv_->item(ppconsul::withHeaders, std::move(key));
                                   if (!item.data().valid())
                                       throw NoEntry{};
-                                  return {item.headers().index(), item.data().value};
+
+                                  std::future<void> watch_future;
+                                  if (watch)
+                                      watch_future = get_watch_future_(key);
+
+                                  return {item.headers().index(), item.data().value, watch_future.share()};
                               } liboffkv_catch
                           });
     }

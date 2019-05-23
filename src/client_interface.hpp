@@ -53,9 +53,6 @@ public:
     virtual
     std::future<void> erase(const std::string& key, uint64_t version = 0) = 0;
 
-//    virtual
-//    std::future<WatchResult> watch(const std::string& key) = 0;
-
     virtual
     std::future<TransactionResult> commit(const Transaction&) = 0;
 };
