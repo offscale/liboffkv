@@ -36,11 +36,10 @@ private:
         return full_path.substr(prefix_.size() + 1);
     }
 
-    std::future<void> get_watch_future_(const std::string& key) const
+    std::future<void> get_watch_future_(const std::string& key, uint64_t old_version) const
     {
-        return std::async([this, key] {
-            uint64_t tmp;
-            kv_->item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, tmp});
+        return std::async([this, key, old_version] {
+            kv_->item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
     };
 
@@ -93,7 +92,7 @@ public:
 
                                   std::future<void> watch_future;
                                   if (watch)
-                                      watch_future = get_watch_future_(key);
+                                      watch_future = get_watch_future_(key, item.headers().index());
 
                                   return {item.headers().index(), item.data().valid(), watch_future.share()};
 
@@ -108,12 +107,17 @@ public:
                 std::unique_lock lock(lock_);
                 try {
 
+                    auto res = kv_->commit({
+                        TxnRequest::getAll(key),
+                        TxnRequest::get(key)
+                    });
+
                     std::future<void> watch_future;
                     if (watch)
-                        watch_future = get_watch_future_(key);
+                        watch_future = get_watch_future_(key, res.back().modifyIndex);
 
                     return {
-                        map_vector(kv_->items(get_path_(key)),
+                        map_vector(std::vector(res.begin(), --res.end()),
                             [this](const auto& key_value) {
                                 return detach_prefix_(key_value.key);
                             }),
@@ -181,7 +185,7 @@ public:
 
                                   std::future<void> watch_future;
                                   if (watch)
-                                      watch_future = get_watch_future_(key);
+                                      watch_future = get_watch_future_(key, item.headers().index());
 
                                   return {item.headers().index(), item.data().value, watch_future.share()};
                               } liboffkv_catch

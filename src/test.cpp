@@ -187,15 +187,15 @@ void test_lease_reset(std::unique_ptr<Client> client) {
     try {
         client->erase("/path").get();
     } catch (NoEntry&) {}
-    
+
     client->create("/path", "test", true).get();
     client->set("/path", "test2").get();
-    
+
     std::cout << "Value: " << client->get("/path").get().value << std::endl;
-    
+
     auto channel = grpc::CreateChannel("127.0.0.1:2379", grpc::InsecureChannelCredentials());
     auto stub = etcdserverpb::KV::NewStub(channel);
-    
+
     etcdserverpb::RangeRequest req;
     req.set_key("/kek");
     req.set_range_end(std::string("/ke") + static_cast<char>('k' + 1));
@@ -212,6 +212,19 @@ void test_lease_reset(std::unique_ptr<Client> client) {
     std::cout << "Lease: " << resp.kvs(1).lease() << std::endl;
 }
 
+void test_txn() {
+    ppconsul::Consul client("127.0.0.1:8500");
+    auto kv = ppconsul::kv::Kv(client);
+    auto res = kv.commit({
+        ppconsul::kv::TxnRequest::set("/b", "qq"),
+                                 ppconsul::kv::TxnRequest::getAll("/"),
+                                 ppconsul::kv::TxnRequest::get("/b")
+    });
+
+    for (auto k: res)
+        std::cout << k.key << " ";
+}
+
 int main()
 {
 //    test_path_parse();
@@ -222,6 +235,7 @@ int main()
 //    test_get_children(connect("etcd://127.0.0.1:2379", "/myprefix", tm));
 //    test_client(connect("etcd://127.0.0.1:2379", "/kek", tm));
 //    test_client(connect("consul://127.0.0.1:8500", "/kek", tm));
-    test_lease_reset(connect("etcd://127.0.0.1:2379", "/kek", tm));
+//    test_lease_reset(connect("etcd://127.0.0.1:2379", "/kek", tm));
 //    test_time_machine();
+test_txn();
 }
