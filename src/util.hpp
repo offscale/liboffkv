@@ -14,7 +14,7 @@ std::pair<std::string, std::string> get_protocol_address(const std::string& addr
 
     const auto pos = address.find(DELIM);
     if (pos == std::string::npos)
-        throw InvalidAddress{};
+        throw InvalidAddress("address must have format \"<protocol>://<ip>\"");
 
     return {address.substr(0, pos), address.substr(pos + DELIM.size())};
 }
