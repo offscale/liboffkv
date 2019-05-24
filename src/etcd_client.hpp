@@ -47,7 +47,7 @@ private:
     std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
     std::unique_ptr<WatchEndpoint::Stub> watch_stub_;
     std::shared_ptr<time_machine::ThreadPool<>> thread_pool_;
-    std::atomic<int64_t> lease_id_;
+    std::atomic<int64_t> lease_id_{0};
     std::mutex lock_;
 
     grpc::CompletionQueue cq_;
@@ -373,6 +373,74 @@ private:
         return full_path.substr(prefix_.size() + 1);
     }
 
+    RangeRequest* const add_success_range(TxnRequest& txn) const {
+        auto* rq = new RangeRequest();
+        auto op = txn.add_success();
+        op->set_allocated_request_range(rq);
+        return rq;
+    }
+
+    RangeRequest* const add_failure_range(TxnRequest& txn) const {
+        auto* rq = new RangeRequest();
+        auto op = txn.add_failure();
+        op->set_allocated_request_range(rq);
+        return rq;
+    }
+
+    const TxnRequest build_txn_check_parent(const Key& key) const {
+        auto entries = key.get_sequence();
+        TxnRequest txn;
+
+        if (entries.size() >= 2) {
+            auto cmp = txn.add_compare();
+            cmp->set_key(entries[entries.size() - 2]);
+            cmp->set_target(Compare::CREATE);
+            cmp->set_result(Compare::GREATER);
+            cmp->set_create_revision(0);
+        }
+
+        return txn;
+    }
+
+    const TxnRequest build_set_operation(const Key& key, const std::string& value, bool expect_lease_exists) {
+        TxnRequest txn = build_txn_check_parent(key);
+
+        if (!expect_lease_exists) {
+            auto cmp_no_lease = txn.add_compare();
+            cmp_no_lease->set_key(key);
+            cmp_no_lease->set_target(Compare::LEASE);
+            cmp_no_lease->set_result(Compare::EQUAL);
+            cmp_no_lease->set_lease(0);
+        }
+
+        // on success: put value and get new version
+        // put request
+        auto request = new PutRequest();
+        request->set_key(key);
+        request->set_value(value);
+        request->set_ignore_lease(expect_lease_exists);
+
+        auto requestOp_put = txn.add_success();
+        requestOp_put->set_allocated_request_put(request);
+
+        // range request after put to get key's version
+        auto* get_key = add_success_range(txn);
+        get_key->set_key(key);
+        get_key->set_limit(1);
+        get_key->set_keys_only(true);
+
+        auto entries = key.get_sequence();
+        if (entries.size() >= 2) {
+            // range request to recognize failure reason
+            auto* get_parent = add_failure_range(txn);
+            get_parent->set_key(entries[entries.size() - 2]);
+            get_parent->set_limit(1);
+            get_parent->set_keys_only(true);
+        }
+
+        return txn;
+    }
+
 public:
     ETCDClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> tm)
         : Client(std::move(tm)),
@@ -400,19 +468,9 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path_(key), value, leased] {
-                auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
-                TxnRequest txn;
-
-                // check that parent exists
-                if (entries.size() >= 2) {
-                    auto cmp = txn.add_compare();
-                    cmp->set_key(entries[entries.size() - 2]);
-                    cmp->set_target(Compare::CREATE);
-                    cmp->set_result(Compare::GREATER);
-                    cmp->set_create_revision(0);
-                }
+                TxnRequest txn = build_txn_check_parent(key);
 
                 // check that entry to be created does not exist
                 auto cmp = txn.add_compare();
@@ -436,12 +494,10 @@ public:
                 requestOp_put->set_allocated_request_put(request);
 
                 // on failure: get request to determine the kind of error
-                auto get_request_failure = new RangeRequest();
+                auto get_request_failure = add_failure_range(txn);
                 get_request_failure->set_key(key);
                 get_request_failure->set_limit(1);
                 get_request_failure->set_keys_only(true);
-
-                txn.add_failure()->set_allocated_request_range(get_request_failure);
 
                 TxnResponse response;
 
@@ -528,13 +584,10 @@ public:
             key_end.set_transformer(children_lookup_end_key_transformer);
 
             // on success: get all keys with appropriate prefix
-            auto get_request = new RangeRequest();
+            auto get_request = add_success_range(txn);
             get_request->set_key(key_begin);
             get_request->set_range_end(key_end);
             get_request->set_keys_only(true);
-
-            auto requestOp_get = txn.add_success();
-            requestOp_get->set_allocated_request_range(get_request);
 
             TxnResponse response;
 
@@ -581,51 +634,31 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path_(key), value]() -> SetResult {
-                auto entries = key.get_sequence();
-                grpc::ClientContext context;
-
-                TxnRequest txn;
-
-                // check that parent exists
-                if (entries.size() >= 2) {
-                    auto cmp = txn.add_compare();
-                    cmp->set_key(entries[entries.size() - 2]);
-                    cmp->set_target(Compare::CREATE);
-                    cmp->set_result(Compare::GREATER);
-                    cmp->set_create_revision(0);
-                }
-
-                // on success: put value and get new version
-                // put request
-                auto request = new PutRequest();
-                request->set_key(key);
-                request->set_value(value);
-                // TODO investigate possible lease reset
-
-                auto requestOp_put = txn.add_success();
-                requestOp_put->set_allocated_request_put(request);
-
-                // range request after put to get key's version
-                auto get_request = new RangeRequest();
-                get_request->set_key(key);
-                get_request->set_limit(1);
-                get_request->set_keys_only(true);
-
-                auto requestOp_get = txn.add_success();
-                requestOp_get->set_allocated_request_range(get_request);
-
                 TxnResponse response;
+                bool expect_lease = true;
 
-                auto status = stub_->Txn(&context, txn, &response);
-                if (!status.ok())
-                    throw ServiceException(status.error_message());
+                while (true) {
+                    expect_lease = !expect_lease;
 
-                if (!response.succeeded())
-                    throw NoEntry{};
+                    grpc::ClientContext context;
+                    TxnRequest txn = build_set_operation(key, value, expect_lease);
 
-                return {
-                    static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()->kvs(0).version())
-                };
+                    auto status = stub_->Txn(&context, txn, &response);
+                    if (!status.ok())
+                        throw ServiceException(status.error_message());
+
+                    if (!response.succeeded()) {
+                        auto& responses = *response.mutable_responses();
+                        if (!responses.empty() && !responses[0].release_response_range()->kvs_size())
+                            throw NoEntry{};
+
+                        continue;
+                    }
+
+                    return {
+                        static_cast<uint64_t>(response.mutable_responses(1)->release_response_range()->kvs(0).version())
+                    };
+                }
             });
     }
 
@@ -649,16 +682,6 @@ public:
 
                 TxnRequest txn;
 
-                // check that given entry and its parent exist
-//                for (size_t i = std::max<size_t>(0, entries.size() - 2); i < entries.size(); ++i) {
-//                    auto cmp = txn.add_compare();
-//                    cmp->set_key(entries[i]);
-//                    cmp->set_target(Compare::CREATE);
-//                    cmp->set_result(Compare::GREATER);
-//                    cmp->set_create_revision(0);
-//                }
-                // checks above seem to be useless, comment
-
                 // check that versions are equal
                 auto cmp = txn.add_compare();
                 cmp->set_key(key);
@@ -677,23 +700,16 @@ public:
                 requestOp_put->set_allocated_request_put(request);
 
                 // range request after put to get key's version
-                auto get_request = new RangeRequest();
+                auto get_request = add_success_range(txn);
                 get_request->set_key(key);
                 get_request->set_limit(1);
                 get_request->set_keys_only(true);
 
-                auto requestOp_get = txn.add_success();
-                requestOp_get->set_allocated_request_range(get_request);
-
                 // on fail: check if the given key exists
-                auto get_request_failure = new RangeRequest();
+                auto get_request_failure = add_failure_range(txn);
                 get_request_failure->set_key(key);
                 get_request_failure->set_limit(1);
                 get_request_failure->set_keys_only(true);
-
-                auto requestOp_get_failure = txn.add_failure();
-                requestOp_get_failure->set_allocated_request_range(get_request_failure);
-
 
                 TxnResponse response;
 
@@ -804,14 +820,10 @@ public:
                 requestOp->set_allocated_request_delete_range(chilren_request);
 
                 // on failure: check if key exists
-                auto get_request_failure = new RangeRequest();
+                auto get_request_failure = add_failure_range(txn);
                 get_request_failure->set_key(key);
                 get_request_failure->set_limit(1);
                 get_request_failure->set_keys_only(true);
-
-                auto requestOp_get_failure = txn.add_failure();
-                requestOp_get_failure->set_allocated_request_range(get_request_failure);
-
 
                 TxnResponse response;
 

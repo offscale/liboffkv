@@ -79,8 +79,11 @@ bool verify_unit(const std::string& unit)
 std::vector<std::string> get_entry_sequence(const std::string& key)
 {
     std::vector<std::string> ans;
-    if (key.size() < 2 || key[0] != '/')
-        throw InvalidKey{};
+    if (key.size() < 2)
+        throw InvalidKey("key has to contain at least 2 symbols");
+
+    if (key[0] != '/')
+        throw InvalidKey("key has to begin with '/'");
 
     auto it = ++key.begin();
     while (it != key.end()) {
@@ -88,7 +91,7 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
         ans.push_back((ans.size() ? ans.back() : std::string()) + "/" + std::string(it, end));
 
         if (!detail::verify_unit(ans.back()))
-            throw InvalidKey{};
+            throw InvalidKey(std::string("entry \"") + ans.back() + "\" not allowed");
 
         if (end == key.end())
             break;
@@ -198,6 +201,7 @@ public:
 
     std::string get_parent() const
     {
+        init_sequence();
         return sequence_end_ > 1 ? static_cast<std::string>((*sequence_)[sequence_end_ - 2]) : "";
     }
 

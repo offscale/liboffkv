@@ -46,5 +46,14 @@ public:
 
 int main()
 {
+    auto client = zk::client::connect("zk://127.0.0.1:2181").get();
+    client.create("/mine", zk::buffer{}).get();
+    client.create("/mine/q", zk::buffer{}).get();
 
+    for (auto& t : client.get_children("/mine").get().children()) {
+        std::cout << t << std::endl;
+    }
+
+    client.erase("/mine/q").get();
+    client.erase("/mine").get();
 }

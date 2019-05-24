@@ -5,9 +5,10 @@ set(VCPKG_BUILD_TYPE release)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO shdown/ppconsul
-    REF 422c8a2a6220e0695a445a9e2b2ffdf97d72f1cc
-    SHA512 98c3d886e8ff1b71dc3a0f49afeff5b98dbfe411490fe6ffecbcd8e116fd53834f13440ec81cd7e99456d7f3d4b0375475ba40e8e34bc44366d9e2ea949316b3
+    REF 39520bdc5d5910cc63a10ab6187821dd11e97bea
+    SHA512 d65cc382c2328651fb7409316365ec0ab6675e6a73e3217f0fdfc6d3439fd40faf6b92ef4aa2464063e01f9697d1bff2d196d69f3fc2c9afc296d6f786db6bfa
     HEAD_REF master
+    PATCHES "cmake_build.patch"
 )
 
 vcpkg_configure_cmake(

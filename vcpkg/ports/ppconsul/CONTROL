@@ -1,4 +1,4 @@
 Source: ppconsul
-Version: 0.2-1
+Version: 0.2-2
 Description: A C++ client library for Consul. Consul is a distributed tool for discovering and configuring services in your infrastructure.
-Build-Depends: boost-core, boost-variant
+Build-Depends: boost-core, boost-variant, curl[openssl]

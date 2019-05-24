@@ -23,7 +23,7 @@
 
 
 std::unique_ptr<Client> connect(const std::string& address, const std::string& prefix="",
-                                             std::shared_ptr<time_machine::ThreadPool<>> tm = nullptr)
+                                std::shared_ptr<time_machine::ThreadPool<>> tm = nullptr)
 {
     auto [protocol, host_port] = get_protocol_address(address);
 
@@ -42,5 +42,5 @@ std::unique_ptr<Client> connect(const std::string& address, const std::string& p
         return std::make_unique<ETCDClient>(host_port, prefix, std::move(tm));
 #endif
 
-    throw InvalidAddress{};
+    throw InvalidAddress(std::string("protocol \"") + protocol + "\" not allowed");
 }

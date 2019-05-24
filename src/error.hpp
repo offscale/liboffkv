@@ -47,10 +47,13 @@
 
 
 #define liboffkv_catch_consul \
+    catch (ppconsul::kv::TxnError& e) {\
+        throw TransactionFailed{static_cast<size_t>(e.index())};\
+    }\
     catch (ppconsul::BadStatus& e) {\
-        throw e;\
+        throw ServiceException(e.what());\
     } catch (ppconsul::kv::UpdateError& e) {\
-        throw e;\
+        throw /* TODO: use e.key(), e.what() */ e;\
     }
 #else
 #define liboffkv_catch_consul
@@ -64,26 +67,43 @@
 
 
 class InvalidAddress : public std::exception {
+private:
+    std::string msg_;
+
 public:
-    virtual const char* what() const noexcept override
+    InvalidAddress(std::string description)
+        : msg_(std::string("invalid address: ") + description)
+    {}
+
+    virtual
+    const char* what() const noexcept override
     {
-        return "invalid address";
+        return msg_.c_str();
     }
 };
 
 
 class InvalidKey : public std::exception {
+private:
+    std::string msg_;
+
 public:
-    virtual const char* what() const noexcept override
+    InvalidKey(std::string description)
+        : msg_(std::string("invalid key: ") + description)
+    {}
+
+    virtual
+    const char* what() const noexcept override
     {
-        return "invalid key";
+        return msg_.c_str();
     }
 };
 
 
 class NoEntry : public std::exception {
 public:
-    virtual const char* what() const noexcept override
+    virtual
+    const char* what() const noexcept override
     {
         return "no entry";
     }
@@ -92,6 +112,7 @@ public:
 
 class EntryExists : public std::exception {
 public:
+    virtual
     const char* what() const noexcept override
     {
         return "entry exists";
@@ -101,6 +122,7 @@ public:
 
 class NoChildrenForEphemeral : public std::exception {
 public:
+    virtual
     const char* what() const noexcept override
     {
         return "attempt to create children of ephemeral node";
@@ -109,6 +131,7 @@ public:
 
 class ConnectionLoss : public std::exception {
 public:
+    virtual
     const char* what() const noexcept override
     {
         return "connection loss";
@@ -125,6 +148,7 @@ public:
         : op_index_(index), msg_(std::string("transaction failed on ") + std::to_string(op_index_) + " operation")
     {}
 
+    virtual
     const char* what() const noexcept override
     {
         return msg_.c_str();
