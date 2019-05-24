@@ -49,7 +49,7 @@ enable_testing()
 find_package(GTest REQUIRED)
 
 add_compile_definitions(TEST_FORWARDED_PORT=${FORWARDED_PORT})
-add_executable(gtests src/tests/gtests.cpp)
+add_executable(gtests src/tests/gtests.cpp src/tests/time_machine.cpp)
 
 target_link_libraries(gtests ${GTEST_BOTH_LIBRARIES})
 target_link_libraries(gtests liboffkv)
