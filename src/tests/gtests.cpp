@@ -63,6 +63,10 @@ TEST_F(UniteTestFixture, create_test) {
 
 
 TEST_F(UniteTestFixture, erase_test){
+    try {
+        client->erase("/key").get();
+    } catch (...) {}
+
     ASSERT_THROW(client->erase("/key").get(), NoEntry);
     usedKeys.push_back("/key");
 }
