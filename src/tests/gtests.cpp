@@ -11,23 +11,14 @@
 #include "operation.hpp"
 #include "time_machine.hpp"
 
-
 class UniteTestFixture : public ::testing::Test
 {
 public:
     static void SetUpTestCase(){
         timeMachine = std::make_shared<time_machine::ThreadPool<>>();
         std::string prefix;
-#ifdef  ENABLE_ZK
-        prefix = "zk";
-#endif
-#ifdef  ENABLE_ETCD
-        prefix = "etcd";
-#endif
-#ifdef  ENABLE_CONSUL
-        prefix = "consul";
-#endif
-        std::string server_addr = prefix + "://127.0.0.1:" + std::to_string(TEST_FORWARDED_PORT);
+
+        std::string server_addr = SERVICE_ADDRESS;
         std::cout << "\n\n ----------------------------------------------------- \n" << std::endl;
         std::cout << "  Using server address : " << server_addr << std::endl;
         std::cout << "\n ----------------------------------------------------- \n\n" << std::endl;
@@ -61,7 +52,7 @@ std::unique_ptr<Client> UniteTestFixture::client;
 std::vector<std::string> UniteTestFixture::usedKeys;
 
 
-TEST_F(UniteTestFixture, create_test){
+TEST_F(UniteTestFixture, create_test) {
     try {
         client->erase("/key").get();
     } catch (...) {}
