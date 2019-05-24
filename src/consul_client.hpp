@@ -117,7 +117,7 @@ public:
                         watch_future = get_watch_future_(key, res.back().modifyIndex);
 
                     return {
-                        map_vector(std::vector(res.begin(), --res.end()),
+                        map_vector(std::vector<ppconsul::kv::KeyValue>(res.begin(), --res.end()),
                             [this](const auto& key_value) {
                                 return detach_prefix_(key_value.key);
                             }),

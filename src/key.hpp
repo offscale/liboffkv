@@ -201,6 +201,7 @@ public:
 
     std::string get_parent() const
     {
+        init_sequence();
         return sequence_end_ > 1 ? static_cast<std::string>((*sequence_)[sequence_end_ - 2]) : "";
     }
 

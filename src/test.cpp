@@ -235,7 +235,7 @@ int main()
 //    test_get_children(connect("etcd://127.0.0.1:2379", "/myprefix", tm));
 //    test_client(connect("etcd://127.0.0.1:2379", "/kek", tm));
 //    test_client(connect("consul://127.0.0.1:8500", "/kek", tm));
-//    test_lease_reset(connect("etcd://127.0.0.1:2379", "/kek", tm));
+    test_lease_reset(connect("etcd://127.0.0.1:2379", "/kek", tm));
 //    test_time_machine();
-test_txn();
+//    test_txn();
 }
