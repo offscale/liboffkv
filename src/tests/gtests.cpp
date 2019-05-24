@@ -12,12 +12,26 @@
 #include "time_machine.hpp"
 
 
-class UniteTestZK : public ::testing::Test
+class UniteTestFixture : public ::testing::Test
 {
 public:
     static void SetUpTestCase(){
         timeMachine = std::make_shared<time_machine::ThreadPool<>>();
-        client = connect("zk://127.0.0.1:2181", "/uniteTestZk", timeMachine);
+        std::string prefix;
+#ifdef  ENABLE_ZK
+        prefix = "zk";
+#endif
+#ifdef  ENABLE_ETCD
+        prefix = "etcd";
+#endif
+#ifdef  ENABLE_CONSUL
+        prefix = "consul";
+#endif
+        std::string server_addr = prefix + "://127.0.0.1:" + std::to_string(TEST_FORWARDED_PORT);
+        std::cout << "\n\n ----------------------------------------------------- \n" << std::endl;
+        std::cout << "  Using server address : " << server_addr << std::endl;
+        std::cout << "\n ----------------------------------------------------- \n\n" << std::endl;
+        client = connect(server_addr, "/uniteTests", timeMachine);
     }
 
     static void TearDownTestCase(){
@@ -29,27 +43,48 @@ public:
     }
 
     void TrearDown() {
-
+        for(auto& key : usedKeys){
+            try {
+                client->erase(key).get();
+            } catch (NoEntry& exc){}
+        }
+        usedKeys.clear();
     }
 
     static std::shared_ptr<time_machine::ThreadPool<>> timeMachine;
     static std::unique_ptr<Client> client;
+    static std::vector<std::string> usedKeys;
 };
 
-std::shared_ptr<time_machine::ThreadPool<>> UniteTestZK::timeMachine;
-std::unique_ptr<Client> UniteTestZK::client;
+std::shared_ptr<time_machine::ThreadPool<>> UniteTestFixture::timeMachine;
+std::unique_ptr<Client> UniteTestFixture::client;
+std::vector<std::string> UniteTestFixture::usedKeys;
 
-TEST(sample_test_case, sample_test)
-{
-    EXPECT_EQ(1, 1);
+
+TEST_F(UniteTestFixture, create_test){
+    try {
+        client->erase("/key").get();
+    } catch (...) {}
+
+    ASSERT_NO_THROW(client->create("/key", "value").get());
+    usedKeys.push_back("/key");
 }
 
-TEST_F(UniteTestZK, set_test){
+
+TEST_F(UniteTestFixture, erase_test){
+    ASSERT_THROW(client->erase("/key").get(), NoEntry);
+    usedKeys.push_back("/key");
+}
+
+TEST_F(UniteTestFixture, set_test){
     try {
         client->erase("/key").get();
     } catch (...) {}
 
     ASSERT_NO_THROW(client->create("/key", "value").get());
     ASSERT_EQ(client->set("/key", "newValue").get().version, 2);
+    usedKeys.push_back("/key");
 }
+
+
 

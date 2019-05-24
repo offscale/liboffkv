@@ -19,12 +19,18 @@ target_include_directories(liboffkv INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/genera
 
 if (${ENABLE_CONSUL})
     find_package(ppconsul REQUIRED)
+
     target_link_libraries(liboffkv INTERFACE ppconsul)
+
+    set(FORWARDED_PORT 8500)
 endif()
 
 if (${ENABLE_ZK})
     find_package(zkpp REQUIRED)
+
     target_link_libraries(liboffkv INTERFACE zkpp)
+
+    set(FORWARDED_PORT 2181)
 endif()
 
 if (${ENABLE_ETCD})
@@ -33,17 +39,19 @@ if (${ENABLE_ETCD})
 
     target_link_libraries(liboffkv INTERFACE etcdpp)
     target_link_libraries(liboffkv INTERFACE gRPC::gpr gRPC::grpc gRPC::grpc++ gRPC::grpc_cronet)
+
+    set(FORWARDED_PORT 2379)
 endif()
 
 
 # google tests
 enable_testing()
 find_package(GTest REQUIRED)
-include_directories(${GTEST_INCLUDE_DIRS})
+
+add_compile_definitions(TEST_FORWARDED_PORT=${FORWARDED_PORT})
 add_executable(gtests src/tests/gtests.cpp)
 
 target_link_libraries(gtests ${GTEST_BOTH_LIBRARIES})
-
 target_link_libraries(gtests liboffkv)
 
 add_test(NAME    registerer_test
