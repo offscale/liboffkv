@@ -210,20 +210,9 @@ void test_lease_reset(std::unique_ptr<Client> client) {
     std::cout << "Key: " << resp.kvs(1).key() << std::endl;
     std::cout << "Value: " << resp.kvs(1).value() << std::endl;
     std::cout << "Lease: " << resp.kvs(1).lease() << std::endl;
+
 }
 
-void test_txn() {
-    ppconsul::Consul client("127.0.0.1:8500");
-    auto kv = ppconsul::kv::Kv(client);
-    auto res = kv.commit({
-        ppconsul::kv::TxnRequest::set("/b", "qq"),
-                                 ppconsul::kv::TxnRequest::getAll("/"),
-                                 ppconsul::kv::TxnRequest::get("/b")
-    });
-
-    for (auto k: res)
-        std::cout << k.key << " ";
-}
 
 int main()
 {
@@ -233,9 +222,9 @@ int main()
 //    test_get_children(connect("zk://127.0.0.1:2181", "/strage/path2", tm));
 //    test_get_children(connect("zk://127.0.0.1:2181", "/some/new/prefix", tm));
 //    test_get_children(connect("etcd://127.0.0.1:2379", "/myprefix", tm));
-//    test_client(connect("etcd://127.0.0.1:2379", "/kek", tm));
+    test_client(connect("etcd://127.0.0.1:2379", "/kek", tm));
 //    test_client(connect("consul://127.0.0.1:8500", "/kek", tm));
-    test_lease_reset(connect("etcd://127.0.0.1:2379", "/kek", tm));
+//    test_lease_reset(connect("etcd://127.0.0.1:2379", "/kek", tm));
 //    test_time_machine();
 //    test_txn();
 }

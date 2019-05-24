@@ -27,7 +27,7 @@ include(BuildFunctions)
 include(CheckIncludeFileCXX)
 include(ConfigurationSetting)
 include(ListSplit)
-include(ZooKeeper)
+# include(ZooKeeper)
 
 ################################################################################
 # Build Configuration                                                          #
