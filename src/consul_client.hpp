@@ -28,6 +28,13 @@ private:
     {
         Key res = key;
         res.set_prefix(prefix_);
+        res.set_transformer([](const std::string &prefix, const std::vector<Key> &seq) {
+            const std::string result = prefix + seq.rbegin()->get_raw_key();
+            if (!result.empty() && result[0] == '/') {
+                return result.substr(1);
+            }
+            return result;
+        });
         return res;
     }
 
