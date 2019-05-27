@@ -76,8 +76,17 @@ TEST_F(UniteTestFixture, set_test){
         client->erase("/key").get();
     } catch (...) {}
 
-    ASSERT_NO_THROW(client->create("/key", "value").get());
-    ASSERT_EQ(client->set("/key", "newValue").get().version, 2);
+    ASSERT_NO_THROW ({
+        client->create("/key", "value").get();
+    });
+
+    uint64_t version = client->set("/key", "newValue").get().version;
+    auto result = client->get("/key").get();
+
+    ASSERT_GT(version, 1);
+    ASSERT_EQ(result.value, "newValue");
+    ASSERT_EQ(result.version, version);
+
     usedKeys.push_back("/key");
 }
 

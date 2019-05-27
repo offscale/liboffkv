@@ -8,6 +8,7 @@
 #include "key.hpp"
 
 
+
 class ConsulClient : public Client {
 private:
     static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::minutes(1);
@@ -54,7 +55,7 @@ public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(std::move(time_machine)),
           client_(Consul(address)),
-          kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency=ppconsul::Consistency::Consistent)),
+          kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency = ppconsul::Consistency::Consistent)),
           prefix_(prefix)
     {}
 
@@ -72,39 +73,39 @@ public:
     std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return this->thread_pool_->async(
-                          [this, key = get_path_(key), value, lease] {
-                              std::unique_lock lock(lock_);
-                              try {
-                                  auto parent = key.get_parent();
-                                  std::vector<TxnRequest> requests;
+            [this, key = get_path_(key), value, lease] {
+                std::unique_lock lock(lock_);
+                try {
+                    auto parent = key.get_parent();
+                    std::vector<TxnRequest> requests;
 
-                                  if (parent.size())
-                                      requests.push_back(TxnRequest::get(parent));
+                    if (parent.size())
+                        requests.push_back(TxnRequest::get(parent));
 
-                                  requests.push_back(TxnRequest::checkNotExists(key));
-                                  requests.push_back(TxnRequest::set(key, value));
+                    requests.push_back(TxnRequest::checkNotExists(key));
+                    requests.push_back(TxnRequest::set(key, value));
 
-                                  kv_->commit(requests);
-                              } liboffkv_catch
-                          });
+                    kv_->commit(requests);
+                } liboffkv_catch
+            });
     }
 
     std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
     {
         return this->thread_pool_->async(
-                          [this, key = get_path_(key), watch]() -> ExistsResult {
-                              std::unique_lock lock(lock_);
-                              try {
-                                  auto item = kv_->item(ppconsul::withHeaders, key);
+            [this, key = get_path_(key), watch]() -> ExistsResult {
+                std::unique_lock lock(lock_);
+                try {
+                    auto item = kv_->item(ppconsul::withHeaders, key);
 
-                                  std::future<void> watch_future;
-                                  if (watch)
-                                      watch_future = get_watch_future_(key, item.headers().index());
+                    std::future<void> watch_future;
+                    if (watch)
+                        watch_future = get_watch_future_(key, item.headers().index());
 
-                                  return {item.headers().index(), item.data().valid(), watch_future.share()};
+                    return {item.headers().index(), item.data().valid(), watch_future.share()};
 
-                              } liboffkv_catch
-                          });
+                } liboffkv_catch
+            });
     }
 
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
@@ -115,9 +116,9 @@ public:
                 try {
 
                     auto res = kv_->commit({
-                        TxnRequest::getAll(key),
-                        TxnRequest::get(key)
-                    });
+                                               TxnRequest::getAll(key),
+                                               TxnRequest::get(key)
+                                           });
 
                     std::future<void> watch_future;
                     if (watch)
@@ -125,9 +126,9 @@ public:
 
                     return {
                         map_vector(std::vector<ppconsul::kv::KeyValue>(res.begin(), --res.end()),
-                            [this](const auto& key_value) {
-                                return detach_prefix_(key_value.key);
-                            }),
+                                   [this](const auto& key_value) {
+                                       return detach_prefix_(key_value.key);
+                                   }),
                         watch_future.share()
                     };
                 } liboffkv_catch
@@ -136,84 +137,92 @@ public:
 
     std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
-        return this->thread_pool_->async(
-                          [this, key = get_path_(key), value]() -> SetResult {
-                              std::unique_lock lock(lock_);
-                              try {
-                                  auto parent = key.get_parent();
+        return thread_pool_->async(
+            [this, key = get_path_(key), value]() -> SetResult {
+                std::unique_lock lock(lock_);
+                try {
+                    auto parent = key.get_parent();
 
-                                  std::vector<TxnRequest> requests;
+                    std::vector<TxnRequest> requests;
 
-                                  if (parent.size())
-                                      requests.push_back(TxnRequest::get(parent));
+                    if (!parent.empty())
+                        requests.push_back(TxnRequest::get(parent));
 
-                                  requests.push_back(TxnRequest::set(key, value));
+                    requests.push_back(TxnRequest::set(key, value));
 
-                                  // is it needed?
-                                  requests.push_back(TxnRequest::get(key));
+                    // is it needed?
+                    requests.push_back(TxnRequest::get(key));
 
-                                  auto result = kv_->commit(requests);
-
-                                  return {result.back().modifyIndex};
-                              } liboffkv_catch
-                          });
+                    try {
+                        auto result = kv_->commit(requests);
+                        return {result.back().modifyIndex};
+                    } catch (ppconsul::kv::TxnError&) {
+                        throw NoEntry{};
+                    }
+                } liboffkv_catch
+            });
     }
 
     std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
         return this->thread_pool_->async(
-                          [this, key = get_path_(key), value, version]() -> CASResult {
-                              std::unique_lock lock(lock_);
-                              try {
-                                  if (!version)
-                                      return {set(key, value).get().version, true};
+            [this, key = get_path_(key), value, version]() -> CASResult {
+                std::unique_lock lock(lock_);
+                try {
+                    if (!version)
+                        return {set(key, value).get().version, true};
 
-                                  auto result = kv_->commit({
-                                      TxnRequest::get(key),
-                                      TxnRequest::compareSet(key, static_cast<uint64_t>(version - 1), value),
-                                      TxnRequest::get(key)
-                                  });
+                    auto result = kv_->commit({
+                                                  TxnRequest::get(key),
+                                                  TxnRequest::compareSet(key, static_cast<uint64_t>(version - 1),
+                                                                         value),
+                                                  TxnRequest::get(key)
+                                              });
 
-                                  return {result.back().modifyIndex,
-                                          /* is it needed? */ result.front().modifyIndex != result.back().modifyIndex};
-                              } liboffkv_catch
-                          });
+                    return {result.back().modifyIndex,
+                        /* is it needed? */ result.front().modifyIndex != result.back().modifyIndex};
+                } liboffkv_catch
+            });
     }
 
     std::future<GetResult> get(const std::string& key, bool watch = false) override
     {
-        return this->thread_pool_->async(
-                          [this, key = get_path_(key), watch]() -> GetResult {
-                              std::unique_lock lock(lock_);
-                              try {
-                                  auto item = kv_->item(ppconsul::withHeaders, std::move(key));
-                                  if (!item.data().valid())
-                                      throw NoEntry{};
+        return thread_pool_->async(
+            [this, key = get_path_(key), watch]() -> GetResult {
+                std::unique_lock lock(lock_);
+                try {
+                    auto item = kv_->item(ppconsul::withHeaders, key);
+                    if (!item.data().valid())
+                        throw NoEntry{};
 
-                                  std::future<void> watch_future;
-                                  if (watch)
-                                      watch_future = get_watch_future_(key, item.headers().index());
+                    std::future<void> watch_future;
+                    if (watch)
+                        watch_future = get_watch_future_(key, item.headers().index());
 
-                                  return {item.headers().index(), item.data().value, watch_future.share()};
-                              } liboffkv_catch
-                          });
+                    return {item.headers().index(), item.data().value, watch_future.share()};
+                } liboffkv_catch
+            });
     }
 
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         return this->thread_pool_->async(
-                   [this, key = get_path_(key), version] {
-                       std::unique_lock lock(lock_);
-                       try {
-                           std::vector<TxnRequest> requests;
+            [this, key = get_path_(key), version] {
+                std::unique_lock lock(lock_);
+                try {
+                    std::vector<TxnRequest> requests;
 
-                           requests.push_back(TxnRequest::get(key));
-                           requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version - 1))
-                                                      : TxnRequest::eraseAll(key));
+                    requests.push_back(TxnRequest::get(key));
+                    requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version - 1))
+                                               : TxnRequest::eraseAll(key));
 
-                           kv_->commit(requests);
-                       } liboffkv_catch
-                   });
+                    try {
+                        kv_->commit(requests);
+                    } catch (const ppconsul::kv::TxnError& e) {
+                        throw NoEntry{};
+                    }
+                } liboffkv_catch
+            });
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction) override
@@ -223,7 +232,7 @@ public:
 
             for (const auto& check : transaction.checks())
                 requests.push_back(check.version ? TxnRequest::checkIndex(get_path_(check.key),
-                                                                     static_cast<uint64_t>(check.version - 1))
+                                                                          static_cast<uint64_t>(check.version - 1))
                                                  : TxnRequest::get(get_path_(check.key)));
 
             for (const auto& op_ptr : transaction.operations()) {
