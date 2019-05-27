@@ -71,24 +71,22 @@ TEST_F(UniteTestFixture, erase_test){
     usedKeys.push_back("/key");
 }
 
-TEST_F(UniteTestFixture, set_test){
+TEST_F(UniteTestFixture, set_test) {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
+    uint64_t initialVersion;
     ASSERT_NO_THROW ({
-        client->create("/key", "value").get();
+        initialVersion = client->create("/key", "value").get().version;
     });
 
     uint64_t version = client->set("/key", "newValue").get().version;
     auto result = client->get("/key").get();
 
-    ASSERT_GT(version, 1);
+    ASSERT_GT(version, initialVersion);
     ASSERT_EQ(result.value, "newValue");
     ASSERT_EQ(result.version, version);
 
     usedKeys.push_back("/key");
 }
-
-
-
