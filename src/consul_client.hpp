@@ -13,6 +13,8 @@ class ConsulClient : public Client {
 private:
     static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::minutes(1);
 
+    static constexpr auto TTL = std::chrono::seconds(10);
+
     using Consul = ppconsul::Consul;
     using Kv = ppconsul::kv::Kv;
     using TxnRequest = ppconsul::kv::TxnRequest;
@@ -52,12 +54,6 @@ private:
         });
     };
 
-    static
-    std::string make_session_name(const std::string& key)
-    {
-        return key + "__session";
-    }
-
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(std::move(time_machine)),
@@ -82,16 +78,26 @@ public:
             [this, key = get_path_(key), value, lease]() -> CreateResult {
                 std::unique_lock lock(lock_);
                 try {
-                    auto parent = key.get_parent();
-
-                    // TODO
                     if (lease) {
+                        auto id = kv_->createSession(key, 15, ppconsul::kv::SessionDropBehavior::DELETE, TTL.count());
+                        thread_pool_->periodic(
+                            [this, id = std::move(id)] {
+                                try {
+                                    kv_->renewSession(id);
+                                    return (TTL + std::chrono::seconds(1)) / 2;
+                                } catch (... /* BadStatus& ??*/) {
+                                    return std::chrono::seconds::zero();
+                                }
+                            }, (TTL + std::chrono::seconds(1)) / 2);
                     }
 
                     std::vector <TxnRequest> requests;
 
-                    if (parent.size())
+                    auto parent = key.get_parent();
+
+                    if (parent.size()) {
                         requests.push_back(TxnRequest::get(parent));
+                    }
 
                     requests.push_back(TxnRequest::checkNotExists(key));
                     requests.push_back(TxnRequest::set(key, value));
