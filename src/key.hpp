@@ -8,11 +8,13 @@
 
 namespace detail {
 
+static inline
 bool is_ascii(unsigned char ch)
 {
     return ch < 128;
 }
 
+static inline
 unsigned bytes_number(unsigned char ch)
 {
     switch (ch >> 3) {
@@ -27,11 +29,13 @@ unsigned bytes_number(unsigned char ch)
     }
 }
 
+static inline
 bool is_multibyte_symbol_part(unsigned char ch)
 {
     return (ch >> 6) == 0b10;
 }
 
+static inline
 bool unicode_allowed(unsigned code)
 {
     return code != 0u &&
@@ -41,6 +45,7 @@ bool unicode_allowed(unsigned code)
            !(0xFFF0 <= code && code <= 0xFFFF);
 }
 
+static
 bool verify_unit(const std::string& unit)
 {
     auto ptr = reinterpret_cast<const unsigned char*>(unit.c_str());

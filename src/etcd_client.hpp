@@ -464,10 +464,10 @@ public:
     ~ETCDClient() = default;
 
 
-    std::future<void> create(const std::string& key, const std::string& value, bool leased = false) override
+    std::future<CreateResult> create(const std::string& key, const std::string& value, bool leased = false) override
     {
         return thread_pool_->async(
-            [this, key = get_path_(key), value, leased] {
+            [this, key = get_path_(key), value, leased]() -> CreateResult {
                 grpc::ClientContext context;
 
                 TxnRequest txn = build_txn_check_parent(key);
@@ -512,6 +512,8 @@ public:
                     // if compare failed but key does not exist the parent has to not exist
                     throw NoEntry{};
                 }
+
+                return {0};
             });
     }
 
@@ -666,7 +668,7 @@ public:
     std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
         if (version == 0)
-            return thread_pool_->then(create(key, value), [](std::future<void>&& res) -> CASResult {
+            return thread_pool_->then(create(key, value), [](std::future<CreateResult>&& res) -> CASResult {
                 try {
                     res.get();
                     return {0, true};
@@ -842,7 +844,8 @@ public:
         return thread_pool_->async(
             [this, transaction]() -> TransactionResult {
                 grpc::ClientContext context;
-                std::vector<int> set_indices;
+
+                std::vector<int> set_indices, create_indices;
                 int _i = 0;
 
                 TxnRequest txn;
@@ -872,6 +875,8 @@ public:
 
                             auto requestOP = txn.add_success();
                             requestOP->set_allocated_request_put(request);
+
+                            create_indices.push_back(_i + 1);
 
                             _i += 2;
                             break;
@@ -929,9 +934,24 @@ public:
 
                 TransactionResult result;
 
-                for (int j = 0; j < set_indices.size(); ++j)
+                int i = 0, j = 0;
+                while (i < create_indices.size() && j < set_indices.size())
+                    if (create_indices[i] < set_indices[j]) {
+                        result.push_back(CreateResult{0});
+                        ++i;
+                    } else {
+                        result.push_back(SetResult{static_cast<uint64_t>(
+                                                       response.mutable_responses(set_indices[j])->release_response_range()
+                                                           ->kvs(0).version())});
+                        ++j;
+                    }
+
+                while (i++ < create_indices.size())
+                    result.push_back(CreateResult{0});
+
+                while (j < set_indices.size())
                     result.push_back(SetResult{static_cast<uint64_t>(
-                                                   response.mutable_responses(set_indices[j])->release_response_range()
+                                                   response.mutable_responses(set_indices[j++])->release_response_range()
                                                        ->kvs(0).version())});
 
                 return result;

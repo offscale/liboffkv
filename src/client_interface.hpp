@@ -38,7 +38,7 @@ public:
      * Throw NoEntry if preceding entry does not exist.
      */
     virtual
-    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) = 0;
+    std::future<CreateResult> create(const std::string& key, const std::string& value, bool lease = false) = 0;
 
 
     /*

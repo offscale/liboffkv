@@ -97,6 +97,11 @@ public:
         op_results_.push_back({op::op_type::SET, std::make_shared<SetResult>(std::move(res))});
     }
 
+    void push_back(CreateResult&& res)
+    {
+        op_results_.push_back({op::op_type::CREATE, std::make_shared<CreateResult>(std::move(res))});
+    }
+
     void pop_back()
     {
         op_results_.pop_back();

@@ -47,9 +47,6 @@
 
 
 #define liboffkv_catch_consul \
-    catch (ppconsul::kv::TxnError& e) {\
-        throw TransactionFailed{static_cast<size_t>(e.index())};\
-    }\
     catch (ppconsul::BadStatus& e) {\
         throw ServiceException(e.what());\
     } catch (ppconsul::kv::UpdateError& e) {\

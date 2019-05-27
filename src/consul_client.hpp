@@ -16,6 +16,7 @@ private:
     using Consul = ppconsul::Consul;
     using Kv = ppconsul::kv::Kv;
     using TxnRequest = ppconsul::kv::TxnRequest;
+    using TxnError = ppconsul::kv::TxnError;
 
     Consul client_;
     std::unique_ptr<Kv> kv_;
@@ -51,6 +52,12 @@ private:
         });
     };
 
+    static
+    std::string make_session_name(const std::string& key)
+    {
+        return key + "__session";
+    }
+
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(std::move(time_machine)),
@@ -69,15 +76,19 @@ public:
     ~ConsulClient() = default;
 
 
-    // TODO: use lease
-    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
+    std::future<CreateResult> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return this->thread_pool_->async(
-            [this, key = get_path_(key), value, lease] {
+            [this, key = get_path_(key), value, lease]() -> CreateResult {
                 std::unique_lock lock(lock_);
                 try {
                     auto parent = key.get_parent();
-                    std::vector<TxnRequest> requests;
+
+                    // TODO
+                    if (lease) {
+                    }
+
+                    std::vector <TxnRequest> requests;
 
                     if (parent.size())
                         requests.push_back(TxnRequest::get(parent));
@@ -85,7 +96,10 @@ public:
                     requests.push_back(TxnRequest::checkNotExists(key));
                     requests.push_back(TxnRequest::set(key, value));
 
-                    kv_->commit(requests);
+                    return {kv_->commit(requests).back().modifyIndex};
+
+                } catch (TxnError&) {
+                    throw EntryExists{};
                 } liboffkv_catch
             });
     }
@@ -131,6 +145,8 @@ public:
                                    }),
                         watch_future.share()
                     };
+                } catch (TxnError&) {
+                    throw NoEntry{};
                 } liboffkv_catch
             });
     }
@@ -150,15 +166,11 @@ public:
 
                     requests.push_back(TxnRequest::set(key, value));
 
-                    // is it needed?
-                    requests.push_back(TxnRequest::get(key));
+                    auto result = kv_->commit(requests);
+                    return {result.back().modifyIndex};
 
-                    try {
-                        auto result = kv_->commit(requests);
-                        return {result.back().modifyIndex};
-                    } catch (ppconsul::kv::TxnError&) {
-                        throw NoEntry{};
-                    }
+                } catch (TxnError&) {
+                    throw NoEntry{};
                 } liboffkv_catch
             });
     }
@@ -175,12 +187,13 @@ public:
                     auto result = kv_->commit({
                                                   TxnRequest::get(key),
                                                   TxnRequest::compareSet(key, static_cast<uint64_t>(version - 1),
-                                                                         value),
-                                                  TxnRequest::get(key)
+                                                                         value)
                                               });
 
                     return {result.back().modifyIndex,
-                        /* is it needed? */ result.front().modifyIndex != result.back().modifyIndex};
+                        /* is it correct? */ result.front().modifyIndex != result.back().modifyIndex};
+                } catch (TxnError&) {
+                    throw NoEntry{};
                 } liboffkv_catch
             });
     }
@@ -216,11 +229,10 @@ public:
                     requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version - 1))
                                                : TxnRequest::eraseAll(key));
 
-                    try {
-                        kv_->commit(requests);
-                    } catch (const ppconsul::kv::TxnError& e) {
-                        throw NoEntry{};
-                    }
+                    kv_->commit(requests);
+
+                } catch (TxnError&) {
+                    throw NoEntry{};
                 } liboffkv_catch
             });
     }
@@ -235,6 +247,9 @@ public:
                                                                           static_cast<uint64_t>(check.version - 1))
                                                  : TxnRequest::get(get_path_(check.key)));
 
+            std::vector<int> set_indices, create_indices;
+            int _j = transaction.checks().size();
+
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
                     // fix it
@@ -244,6 +259,8 @@ public:
                             get_path_(create_op_ptr->key),
                             create_op_ptr->value
                         ));
+
+                        create_indices.push_back(_j++);
                         break;
                     }
                     case op::op_type::SET: {
@@ -252,11 +269,15 @@ public:
                             get_path_(set_op_ptr->key),
                             set_op_ptr->value
                         ));
+
+                        set_indices.push_back(_j++);
                         break;
                     }
                     case op::op_type::ERASE: {
                         auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
                         requests.push_back(TxnRequest::eraseAll(get_path_(erase_op_ptr->key)));
+
+                        ++_j;
                         break;
                     }
                     default:
@@ -264,13 +285,30 @@ public:
                 }
             };
 
-            auto commit_result = kv_->commit(requests);
-            TransactionResult result;
+            try {
+                auto commit_result = kv_->commit(requests);
+                TransactionResult result;
 
-            for (const auto& key_value : commit_result)
-                result.push_back(SetResult{key_value.modifyIndex});
+                int i = 0, j = 0;
+                while (i < create_indices.size() && j < set_indices.size())
+                    if (create_indices[i] < set_indices[j]) {
+                        result.push_back(CreateResult{0});
+                        ++i;
+                    } else {
+                        result.push_back(SetResult{commit_result[set_indices[j]].modifyIndex});
+                        ++j;
+                    }
 
-            return result;
+                while (i++ < create_indices.size())
+                    result.push_back(CreateResult{0});
+
+                while (j < set_indices.size())
+                    result.push_back(SetResult{commit_result[set_indices[j++]].modifyIndex});
+
+                return result;
+            } catch (TxnError& e) {
+                throw TransactionFailed{static_cast<size_t>(e.index())};
+            }
         });
     }
 };

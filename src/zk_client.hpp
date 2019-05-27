@@ -81,7 +81,7 @@ public:
     ~ZKClient() override = default;
 
 
-    std::future<void> create(const std::string& key, const std::string& value, bool lease = false) override
+    std::future<CreateResult> create(const std::string& key, const std::string& value, bool lease = false) override
     {
         return thread_pool_->then(
             client_.create(
@@ -89,7 +89,10 @@ public:
                 from_string(value),
                 !lease ? zk::create_mode::normal : zk::create_mode::ephemeral
             ),
-            call_get_ignore<zk::create_result>
+            [](std::future<zk::create_result>&& res) -> CreateResult {
+                call_get_ignore(std::move(res));
+                return {0};
+            }
         );
     }
 
@@ -191,7 +194,7 @@ public:
         if (!version) {
             return thread_pool_->then(
                 create(key, value),
-                [this, path, value](std::future<void>&& res) -> CASResult {
+                [this, path, value](std::future<CreateResult>&& res) -> CASResult {
                     try {
                         call_get(std::move(res));
                         return {1, true};

@@ -110,8 +110,8 @@ void test_get_children(std::unique_ptr<Client>&& client)
 
     assert(client->get_children("/parent").get().children.empty());
 
-    std::future<void> future1 = client->create("/parent/child1", "");
-    std::future<void> future2 = client->create("/parent/child2", "");
+    std::future<CreateResult> future1 = client->create("/parent/child1", "");
+    std::future<CreateResult> future2 = client->create("/parent/child2", "");
 
     future1.get();
     future2.get();
@@ -212,6 +212,7 @@ void test_lease_reset(std::unique_ptr<Client> client) {
     std::cout << "Lease: " << resp.kvs(1).lease() << std::endl;
 
 }
+
 
 
 int main()
