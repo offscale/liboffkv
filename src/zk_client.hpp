@@ -91,7 +91,7 @@ public:
             ),
             [](std::future<zk::create_result>&& res) -> CreateResult {
                 call_get_ignore(std::move(res));
-                return {0};
+                return {1};
             }
         );
     }
@@ -361,6 +361,8 @@ public:
                         result.push_back(SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)});
                         break;
                     case zk::op_type::create:
+                        result.push_back(CreateResult{1});
+                        break;
                     case zk::op_type::check:
                     case zk::op_type::erase:
                     default:

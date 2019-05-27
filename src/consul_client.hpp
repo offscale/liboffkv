@@ -298,7 +298,7 @@ public:
                 int i = 0, j = 0;
                 while (i < create_indices.size() && j < set_indices.size())
                     if (create_indices[i] < set_indices[j]) {
-                        result.push_back(CreateResult{0});
+                        result.push_back(CreateResult{1});
                         ++i;
                     } else {
                         result.push_back(SetResult{commit_result[set_indices[j]].modifyIndex});
@@ -306,7 +306,7 @@ public:
                     }
 
                 while (i++ < create_indices.size())
-                    result.push_back(CreateResult{0});
+                    result.push_back(CreateResult{commit_result[set_indices[j++]].modifyIndex});
 
                 while (j < set_indices.size())
                     result.push_back(SetResult{commit_result[set_indices[j++]].modifyIndex});

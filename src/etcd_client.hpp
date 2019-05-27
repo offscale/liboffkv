@@ -513,7 +513,7 @@ public:
                     throw NoEntry{};
                 }
 
-                return {0};
+                return {1};
             });
     }
 
@@ -937,7 +937,7 @@ public:
                 int i = 0, j = 0;
                 while (i < create_indices.size() && j < set_indices.size())
                     if (create_indices[i] < set_indices[j]) {
-                        result.push_back(CreateResult{0});
+                        result.push_back(CreateResult{1});
                         ++i;
                     } else {
                         result.push_back(SetResult{static_cast<uint64_t>(
@@ -947,7 +947,7 @@ public:
                     }
 
                 while (i++ < create_indices.size())
-                    result.push_back(CreateResult{0});
+                    result.push_back(CreateResult{1});
 
                 while (j < set_indices.size())
                     result.push_back(SetResult{static_cast<uint64_t>(
