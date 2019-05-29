@@ -297,12 +297,18 @@ private:
 
     static void process_objects_(std::vector<QueueData>& picked, size_t wait_for_object_ms_)
     {
+		std::vector<size_t> erase_it;
         for (auto it = picked.begin(); it < picked.end(); ++it) {
             if (it->first(std::chrono::milliseconds(wait_for_object_ms_))) {
                 it->second();
-                picked.erase(it);
+				erase_it.push_back(it - picked.begin());
             }
         }
+
+		std::reverse(erase_it.begin(), erase_it.end());
+		for (auto index : erase_it) {
+			picked.erase(picked.begin() + index);
+		}
     }
 
 private:
