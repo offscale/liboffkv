@@ -4,7 +4,7 @@
 
 #include <iostream>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "client.hpp"
 #include "key.hpp"

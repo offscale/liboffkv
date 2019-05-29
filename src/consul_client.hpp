@@ -286,8 +286,8 @@ public:
                         ++_j;
                         break;
                     }
-                    default:
-                        __builtin_unreachable();
+                    // default:
+                        // __builtin_unreachable();
                 }
             };
 

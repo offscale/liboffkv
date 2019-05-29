@@ -89,6 +89,10 @@ public:
 
     TransactionResult(TransactionResult&&) = default;
 
+    TransactionResult& operator =(const TransactionResult&) = default;
+
+    TransactionResult& operator =(TransactionResult&&) = default;
+
     ~TransactionResult()
     {}
 

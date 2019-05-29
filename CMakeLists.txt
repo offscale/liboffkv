@@ -23,6 +23,9 @@ set(SERVICE_TEST_ADDRESSES)
 if (${ENABLE_CONSUL})
     find_package(ppconsul REQUIRED)
 
+    if (WIN32)
+        find_package(ZLIB REQUIRED) # weird but works
+    endif()
     target_link_libraries(liboffkv INTERFACE ppconsul)
 
     list(APPEND SERVICE_TEST_ADDRESSES "consul://localhost:8500")
