@@ -20,15 +20,18 @@ index 92e4698..002981e 100644
  install(
      DIRECTORY "${HEADERS_DIR}"
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 8e24aab..9a5c971 100644
+index 8e24aab..beaac68 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -85,7 +85,7 @@ if (${USE_CPPNETLIB})
+@@ -85,7 +85,10 @@ if (${USE_CPPNETLIB})
      target_link_libraries(${PROJECT_NAME} PRIVATE ${CPPNETLIB_LIBRARIES})
  else ()
      target_include_directories(${PROJECT_NAME} PRIVATE ${CURL_INCLUDE_DIR})
 -    target_link_libraries(${PROJECT_NAME} PRIVATE ${CURL_LIBRARIES})
 +    target_link_libraries(${PROJECT_NAME} PRIVATE ${CURL_LIBRARIES} ${OPENSSL_LIBRARIES} ZLIB::ZLIB)
++    if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
++        target_link_libraries(${PROJECT_NAME} PRIVATE "-framework CoreFoundation" "-framework Security")
++    endif ()
  endif ()
  
  source_group(${PROJECT_NAME} FILES ${SOURCES})
