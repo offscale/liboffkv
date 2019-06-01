@@ -46,7 +46,7 @@ TEST(time_machine_test, test_1)
     );
 
     short interval = 100;
-    short time_eps = 2;
+    short time_eps = 5;
     auto prev = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch());
 
@@ -60,7 +60,6 @@ TEST(time_machine_test, test_1)
         ASSERT_GE(ms.count() - prev.count(), interval - time_eps);
         ASSERT_LE(ms.count() - prev.count(), interval + time_eps);
         prev = ms;
-//        std::cout << ++(*l) << ' ' << ms.count() << std::endl;
     }, std::chrono::milliseconds(interval));
 
     std::this_thread::sleep_for(std::chrono::seconds(4));
