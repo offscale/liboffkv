@@ -45,8 +45,11 @@ The library is currently tested on
 - Install dependencies
 
   ```sh
+  # from vcpkg root
   vcpkg install ppconsul etcdpp zkpp
   ```
+
+  Installing all three packages is not required. See control flags at the next step.
 
 - Build tests
 
@@ -64,3 +67,12 @@ The library is currently tested on
     - `-DBUILD_ZK=[ON|OFF]`
     - `-DBUILD_ETCD=[ON|OFF]`
     - `-DBUILD_CONSUL=[ON|OFF]`
+
+    Sometimes you may also need to specify `VCPKG_TARGET_TRIPLET`.
+
+- Run tests
+
+  ```sh
+  # from liboffkv/cmake-build-debug directory
+  make test
+  ```
