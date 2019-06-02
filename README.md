@@ -57,7 +57,7 @@ The library is currently tested on
     # from liboffkv directory
     mkdir cmake-build-debug && cd $_
     cmake -DCMAKE_BUILD_TYPE=Debug \
-          -DCMAKE_TOOLCHAIN_FILE='<replace with path to vcpkg.cmake>" \
+          -DCMAKE_TOOLCHAIN_FILE="<replace with path to vcpkg.cmake>" \
           -DBUILD_TESTS=ON ..
     cmake --build .
     ```
