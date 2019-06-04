@@ -670,7 +670,7 @@ public:
         if (version == 0)
             return thread_pool_->then(create(key, value), [](std::future<CreateResult>&& res) -> CASResult {
                 try {
-                    return {call_get(res).version, true};
+                    return {call_get(std::move(res)).version, true};
                 } catch (EntryExists&) {
                     return {0, false};
                 }

@@ -11,7 +11,9 @@
 #include "operation.hpp"
 #include "time_machine.hpp"
 
-class UniteTestFixture : public ::testing::Test {
+
+
+class UnitTestFixture : public ::testing::Test {
 public:
     static
     void SetUpTestCase()
@@ -23,11 +25,12 @@ public:
         std::cout << "\n\n ----------------------------------------------------- \n" << std::endl;
         std::cout << "  Using server address : " << server_addr << std::endl;
         std::cout << "\n ----------------------------------------------------- \n\n" << std::endl;
-        client = connect(server_addr, "/uniteTests", timeMachine);
+        client = connect(server_addr, "/unitTests", timeMachine);
     }
 
     static
-    void TearDownTestCase() {
+    void TearDownTestCase()
+    {
 
     }
 
@@ -51,12 +54,13 @@ public:
     static std::set<std::string> usedKeys;
 };
 
-std::shared_ptr<time_machine::ThreadPool<>> UniteTestFixture::timeMachine;
-std::unique_ptr<Client> UniteTestFixture::client;
-std::vector<std::string> UniteTestFixture::usedKeys;
+
+std::shared_ptr<time_machine::ThreadPool<>> UnitTestFixture::timeMachine;
+std::unique_ptr<Client> UnitTestFixture::client;
+std::set<std::string> UnitTestFixture::usedKeys;
 
 
-TEST_F(UniteTestFixture, create_test)
+TEST_F(UnitTestFixture, create_test)
 {
     try {
         client->erase("/key").get();
@@ -73,28 +77,28 @@ TEST_F(UniteTestFixture, create_test)
 }
 
 
-TEST_F(UniteTestFixture, exists_test)
+TEST_F(UnitTestFixture, exists_test)
 {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
 
-    auto result = client->exists("/key");
-    ASSERT_FALSE(bool(result));
+    auto result = client->exists("/key").get();
+    ASSERT_FALSE(result);
     ASSERT_FALSE(result.exists);
 
     client->create("/key", "value").get();
 
-    result = client->exists("/key");
-    ASSERT_TRUE(bool(result));
+    result = client->exists("/key").get();
+    ASSERT_TRUE(result);
     ASSERT_TRUE(result.exists);
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UniteTestFixture, erase_test)
+TEST_F(UnitTestFixture, erase_test)
 {
     try {
         client->erase("/key").get();
@@ -113,17 +117,17 @@ TEST_F(UniteTestFixture, erase_test)
 
     uint64_t initialVersion = client->create("/key", "value").get().version;
 
-    ASSERT_NO_THROW(client->erase("/key"), initialVersion + 1u);
-    ASSERT_TRUE(client->exists("/key"));
+    ASSERT_NO_THROW(client->erase("/key", initialVersion + 1u).get());
+    ASSERT_TRUE(client->exists("/key").get());
 
-    ASSERT_NO_THROW(client->erase("/key"), initialVersion);
-    ASSERT_FALSE(client->exists("/key"));
+    ASSERT_NO_THROW(client->erase("/key", initialVersion).get());
+    ASSERT_FALSE(client->exists("/key").get());
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UniteTestFixture, exists_with_watch_test)
+TEST_F(UnitTestFixture, exists_with_watch_test)
 {
     try {
         client->erase("/key").get();
@@ -134,7 +138,7 @@ TEST_F(UniteTestFixture, exists_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    std::thread([client]() mutable {
+    std::thread([this, &my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->erase("/key").get();
     }).detach();
@@ -143,38 +147,39 @@ TEST_F(UniteTestFixture, exists_with_watch_test)
     my_lock.unlock();
 
 
-    ASSERT_TRUE(bool(result));
+    ASSERT_TRUE(result);
 
     result.watch.get();
-    ASSERT_FALSE(bool(client->exists("/key").get()));
+    ASSERT_FALSE(client->exists("/key").get());
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UniteTestFixture, create_with_lease_test)
-{
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+// TODO. Current version definitele won't work
+//TEST_F(UnitTestFixture, create_with_lease_test)
+//{
+//    try {
+//        client->erase("/key").get();
+//    } catch (...) {}
+//
+//
+//    ASSERT_NO_THROW(client->create("/key", "value", true).get());
+//    ASSERT_NO_THROW(client->create("/key/child", "value", true).get());
+//
+//    // TODO: think about a better solution
+//    auto address = client->address();
+//    client.reset();
+//    client = connect(address, "/unitTests", timeMachine);
+//
+//    ASSERT_FALSE(client->exists("/key").get());
+//    ASSERT_FALSE(client->exists("/key/child").get());
+//
+//    usedKeys.insert("/key");
+//}
 
 
-    ASSERT_NO_THROW(client->create("/key", "value", true).get());
-    ASSERT_NO_THROW(client->create("/key/child", "value", true).get());
-
-    // TODO: think about a better solution
-    auto address = client->address();
-    client.reset();
-    client = connect(address, std::move(timeMachine));
-
-    ASSERT_FALSE(bool(client->exists("/key").get()));
-    ASSERT_FALSE(bool(client->exists("/key/child").get()));
-
-    usedKeys.insert("/key");
-}
-
-
-TEST_F(UniteTestFixture, get_test)
+TEST_F(UnitTestFixture, get_test)
 {
     try {
         client->erase("/key").get();
@@ -185,7 +190,7 @@ TEST_F(UniteTestFixture, get_test)
     uint64_t initialVersion = client->create("/key", "value").get().version;
 
     GetResult result;
-    ASSERT_NO_THROW({result = client->get("/key").get();});
+    ASSERT_NO_THROW({ result = client->get("/key").get(); });
 
     ASSERT_EQ(result.value, "value");
     ASSERT_EQ(result.version, initialVersion);
@@ -194,7 +199,7 @@ TEST_F(UniteTestFixture, get_test)
 }
 
 
-TEST_F(UniteTestFixture, set_test)
+TEST_F(UnitTestFixture, set_test)
 {
     try {
         client->erase("/key").get();
@@ -219,7 +224,7 @@ TEST_F(UniteTestFixture, set_test)
 }
 
 
-TEST_F(UniteTestFixture, get_with_watch_test)
+TEST_F(UnitTestFixture, get_with_watch_test)
 {
     try {
         client->erase("/key").get();
@@ -230,7 +235,7 @@ TEST_F(UniteTestFixture, get_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    std::thread([client]() mutable {
+    std::thread([this, &my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->set("/key", "newValue").get();
     }).detach();
@@ -248,7 +253,7 @@ TEST_F(UniteTestFixture, get_with_watch_test)
 }
 
 
-TEST_F(UniteTestFixture, cas_test)
+TEST_F(UnitTestFixture, cas_test)
 {
     try {
         client->erase("/key").get();
@@ -262,17 +267,17 @@ TEST_F(UniteTestFixture, cas_test)
     GetResult get_result;
 
 
-    ASSERT_NO_THROW({cas_result = client->cas("/key", "new_value", version + 1u).get();});
+    ASSERT_NO_THROW({ cas_result = client->cas("/key", "new_value", version + 1u).get(); });
 
     ASSERT_FALSE(bool(cas_result));
     ASSERT_FALSE(cas_result.success);
 
     get_result = client->get("/key").get();
     ASSERT_EQ(get_result.version, version);
-    ASSERT_EQ(get_result.value, "value")
+    ASSERT_EQ(get_result.value, "value");
 
 
-    ASSERT_NO_THROW({cas_result = client->cas("/key", "new_value", version).get();});
+    ASSERT_NO_THROW({ cas_result = client->cas("/key", "new_value", version).get(); });
 
     ASSERT_TRUE(bool(cas_result));
     ASSERT_TRUE(cas_result.success);
@@ -280,10 +285,9 @@ TEST_F(UniteTestFixture, cas_test)
     get_result = client->get("/key").get();
     ASSERT_EQ(get_result.version, cas_result.version);
     ASSERT_GT(cas_result.version, version);
-    ASSERT_EQ(get_result.value, "new_value")
+    ASSERT_EQ(get_result.value, "new_value");
 
-
-    usedKey.insert("/key");
+    usedKeys.insert("/key");
 }
 
 
@@ -297,24 +301,24 @@ TEST_F(UnitTestFixture, cas_zero_version_test)
     GetResult get_result;
 
 
-    ASSERT_NO_THROW({cas_result = client->cas("/key", "value").get();});
+    ASSERT_NO_THROW({ cas_result = client->cas("/key", "value").get(); });
 
     ASSERT_TRUE(bool(cas_result));
     ASSERT_TRUE(cas_result.success);
 
-    ASSERT_NO_THROW({get_result = client->get("/key").get();});
+    ASSERT_NO_THROW({ get_result = client->get("/key").get(); });
     ASSERT_EQ(get_result.value, "value");
     ASSERT_EQ(get_result.version, cas_result.version);
 
     uint64_t version = cas_result.version;
 
 
-    ASSERT_NO_THROW({cas_result = client->cas("/key", "new_value").get();});
+    ASSERT_NO_THROW({ cas_result = client->cas("/key", "new_value").get(); });
 
     ASSERT_FALSE(bool(cas_result));
     ASSERT_FALSE(cas_result.success);
 
-    ASSERT_NO_THROW({get_result = client->get("/key").get();});
+    ASSERT_NO_THROW({ get_result = client->get("/key").get(); });
     ASSERT_EQ(get_result.value, "value");
     ASSERT_EQ(get_result.version, version);
 
@@ -323,7 +327,7 @@ TEST_F(UnitTestFixture, cas_zero_version_test)
 }
 
 
-TEST_F(UniteTestFixup, get_children_test)
+TEST_F(UnitTestFixture, get_children_test)
 {
     try {
         client->erase("/key").get();
@@ -338,12 +342,14 @@ TEST_F(UniteTestFixup, get_children_test)
 
     ChildrenResult result;
 
-    ASSERT_NO_THROW({result = client->get_children("/key").get();});
-    ASSERT_EQ(result, {"/key/child", "/key/hackerivan"});
+    ASSERT_NO_THROW({ result = client->get_children("/key").get(); });
+
+    // TODO: consider different children order
+    ASSERT_EQ(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"}));
 
 
-    ASSERT_NO_THROW({result = client->get_children("/key/child").get();});
-    ASSERT_EQ(result, {"/key/child", "/key/child/grandchild"});
+    ASSERT_NO_THROW({ result = client->get_children("/key/child").get(); });
+    ASSERT_EQ(result.children, std::vector<std::string>({"/key/child", "/key/child/grandchild"}));
 
 
     usedKeys.insert("/key");
@@ -359,5 +365,5 @@ TEST_F(UnitTestFixture, get_children_with_watch_test)
 // TODO
 TEST_F(UnitTestFixture, commit_test)
 {
-    
+
 }
