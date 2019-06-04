@@ -20,7 +20,7 @@ fi
         sh '''cp -r vcpkg/ports/ pkgs
 cd pkgs
 ./vcpkg upgrade --no-dry-run
-./vcpkg install ppconsul etcdpp zkpp'''
+./vcpkg install ppconsul etcdpp zkpp gtest'''
       }
     }
     stage('build') {
@@ -53,6 +53,7 @@ cmake --build .'''
 
     failure {
       telegramSend "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' ${env.BUILD_URL}"
+
     }
 
   }
