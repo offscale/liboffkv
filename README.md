@@ -1,5 +1,8 @@
 liboffkv
-=================
+========
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Build Status](https://travis-ci.org/offscale/liboffkv.svg?branch=master)](https://travis-ci.org/offscale/liboffkv)
+
 liboffkv is a C++ library.
 
 ## Supported platforms
