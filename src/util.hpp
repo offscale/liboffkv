@@ -43,3 +43,26 @@ const std::vector<std::invoke_result_t<std::decay_t<Func>, T1>> map_vector(const
     std::transform(vec.begin(), vec.end(), std::back_inserter(res), std::forward<Func>(f));
     return res;
 }
+
+
+template <typename T, typename F>
+const std::vector<T> filter_vector(const std::vector<T>& v, F&& f)
+{
+    auto copy = v;
+    copy.erase(std::remove_if(copy.begin(), copy.end(),
+               [f = std::forward<F>(f)](const T& x) {return !f(x);}), copy.end());
+    return copy;
+}
+
+
+template <typename T>
+bool equal_as_sets(const std::vector<T>& v1, const std::vector<T>& v2)
+{
+    if (v1.size() != v2.size())
+        return false;
+
+    std::multiset m1(v1.begin(), v1.end());
+    std::multiset m2(v2.begin(), v2.end());
+
+    return m1 == m2;
+}

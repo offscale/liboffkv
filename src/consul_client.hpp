@@ -11,7 +11,7 @@
 
 class ConsulClient : public Client {
 private:
-    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::minutes(1);
+    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(10);
 
     static constexpr auto TTL = std::chrono::seconds(10);
 
@@ -44,12 +44,13 @@ private:
 
     const std::string detach_prefix_(const std::string& full_path) const
     {
-        return full_path.substr(prefix_.size() + 1);
+        return full_path.substr(prefix_.size() - 1);
     }
 
     std::future<void> get_watch_future_(const std::string& key, uint64_t old_version) const
     {
         return std::async([this, key, old_version] {
+            std::unique_lock lock(lock_);
             kv_->item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
     };
@@ -77,6 +78,10 @@ public:
         return this->thread_pool_->async(
             [this, key = get_path_(key), value, lease]() -> CreateResult {
                 std::unique_lock lock(lock_);
+
+                auto parent = key.get_parent();
+                bool has_parent = (parent.size() > 0);
+
                 try {
                     if (lease) {
                         auto id = kv_->createSession(key, 15, ppconsul::kv::SessionDropBehavior::DELETE, TTL.count());
@@ -91,21 +96,22 @@ public:
                             }, (TTL + std::chrono::seconds(1)) / 2);
                     }
 
-                    std::vector <TxnRequest> requests;
+                    std::vector<TxnRequest> requests;
 
-                    auto parent = key.get_parent();
-
-                    if (parent.size()) {
+                    if (has_parent)
                         requests.push_back(TxnRequest::get(parent));
-                    }
 
                     requests.push_back(TxnRequest::checkNotExists(key));
                     requests.push_back(TxnRequest::set(key, value));
 
                     return {kv_->commit(requests).back().modifyIndex};
 
-                } catch (TxnError&) {
-                    throw EntryExists{};
+                } catch (TxnError& e) {
+                    if (has_parent && (e.index() == 0))
+                        throw NoEntry{};
+                    if (e.index() == static_cast<uint64_t>(has_parent))
+                        throw EntryExists{};
+                    throw;
                 } liboffkv_catch
             });
     }
@@ -121,6 +127,8 @@ public:
                     std::future<void> watch_future;
                     if (watch)
                         watch_future = get_watch_future_(key, item.headers().index());
+
+                    lock.unlock();
 
                     return {item.headers().index(), item.data().valid(), watch_future.share()};
 
@@ -145,13 +153,19 @@ public:
                         watch_future = get_watch_future_(key, res.back().modifyIndex);
 
                     return {
-                        map_vector(std::vector<ppconsul::kv::KeyValue>(res.begin(), --res.end()),
-                                   [this](const auto& key_value) {
-                                       return detach_prefix_(key_value.key);
-                                   }),
+                        map_vector(
+                            filter_vector(
+                                std::vector<ppconsul::kv::KeyValue>(res.begin(), --res.end()),
+                                [key = static_cast<std::string>(key)](const auto& key_value) {
+                                    return key_value.key != key &&
+                                           key_value.key.substr(key.size() + 1).find('/') == std::string::npos;
+                                }),
+                            [this](const auto& key_value) {
+                                return detach_prefix_(key_value.key);
+                            }),
                         watch_future.share()
                     };
-                } catch (TxnError&) {
+                } catch (TxnError& e) {
                     throw NoEntry{};
                 } liboffkv_catch
             });
@@ -185,21 +199,33 @@ public:
     {
         return this->thread_pool_->async(
             [this, key = get_path_(key), value, version]() -> CASResult {
-                std::unique_lock lock(lock_);
-                try {
-                    if (!version)
-                        return {set(key, value).get().version, true};
+                if (!version)
+                    return thread_pool_->then(
+                        create(key.get_raw_key(), value),
+                        [](std::future<CreateResult>&& result) -> CASResult {
+                            CreateResult unwrapped;
 
+                            try {
+                                unwrapped = call_get(std::move(result));
+                                return {unwrapped.version, true};
+                            } catch (EntryExists&) {
+                                return {0, false};
+                            }
+                        }, true).get();
+
+                try {
+                    std::unique_lock lock(lock_);
                     auto result = kv_->commit({
                                                   TxnRequest::get(key),
-                                                  TxnRequest::compareSet(key, static_cast<uint64_t>(version - 1),
+                                                  TxnRequest::compareSet(key, static_cast<uint64_t>(version),
                                                                          value)
                                               });
 
-                    return {result.back().modifyIndex,
-                        /* is it correct? */ result.front().modifyIndex != result.back().modifyIndex};
-                } catch (TxnError&) {
-                    throw NoEntry{};
+                    return {result.back().modifyIndex, true};
+                } catch (TxnError& e) {
+                    if (e.index() == 0)
+                        throw NoEntry{};
+                    return {0, false};
                 } liboffkv_catch
             });
     }
@@ -232,13 +258,14 @@ public:
                     std::vector<TxnRequest> requests;
 
                     requests.push_back(TxnRequest::get(key));
-                    requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version - 1))
+                    requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version))
                                                : TxnRequest::eraseAll(key));
 
                     kv_->commit(requests);
 
-                } catch (TxnError&) {
-                    throw NoEntry{};
+                } catch (TxnError& e) {
+                    if (e.index() == 0)
+                        throw NoEntry{};
                 } liboffkv_catch
             });
     }

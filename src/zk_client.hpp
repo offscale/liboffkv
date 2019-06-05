@@ -32,7 +32,7 @@ private:
         return {buf.begin(), buf.end()};
     }
 
-    void make_recursive_erase_query(zk::multi_op& query, const std::string& path, bool ignore_no_entry=true)
+    void make_recursive_erase_query(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
     {
         zk::get_children_result::children_list_type children;
         try {
@@ -43,7 +43,7 @@ private:
         }
         
         for (const auto& child : children)
-            make_recursive_erase_query(query, path + "/" + child);
+            make_recursive_erase_query(query, path + "/" + child, ignore_no_entry);
 
         query.push_back(zk::op::erase(path));
     }
@@ -301,7 +301,9 @@ public:
                 txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
                 try {
                     make_recursive_erase_query(txn, static_cast<std::string>(get_path_(key)), false);
-                } liboffkv_catch
+                } catch (...) {
+                    continue;
+                }
 
                 try {
                     auto res = client_.commit(txn).get();
@@ -309,7 +311,11 @@ public:
                 } catch (zk::transaction_failed& e) {
                     if (e.failed_op_index() == 0)
                         throw NoEntry{};
+                } catch (...) {
+                    continue;
                 }
+
+                break;
             }
         });
     }

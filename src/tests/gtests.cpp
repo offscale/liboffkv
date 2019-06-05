@@ -10,6 +10,7 @@
 #include "key.hpp"
 #include "operation.hpp"
 #include "time_machine.hpp"
+#include "util.hpp"
 
 
 
@@ -30,14 +31,10 @@ public:
 
     static
     void TearDownTestCase()
-    {
-
-    }
+    {}
 
     void SetUp()
-    {
-
-    }
+    {}
 
     void TearDown()
     {
@@ -111,8 +108,8 @@ TEST_F(UnitTestFixture, erase_test)
     client->create("/key/child", "value").get();
 
     ASSERT_NO_THROW(client->erase("/key").get());
-    ASSERT_FALSE(bool(client->exists("/key").get()));
-    ASSERT_FALSE(bool(client->exists("/key/child").get()));
+    ASSERT_FALSE(client->exists("/key").get());
+    ASSERT_FALSE(client->exists("/key/child").get());
 
 
     uint64_t initialVersion = client->create("/key", "value").get().version;
@@ -185,7 +182,7 @@ TEST_F(UnitTestFixture, get_test)
         client->erase("/key").get();
     } catch (...) {}
 
-    ASSERT_THROW(client->get("/key"), NoEntry);
+    ASSERT_THROW(client->get("/key").get(), NoEntry);
 
     uint64_t initialVersion = client->create("/key", "value").get().version;
 
@@ -266,10 +263,10 @@ TEST_F(UnitTestFixture, cas_test)
     CASResult cas_result;
     GetResult get_result;
 
-
     ASSERT_NO_THROW({ cas_result = client->cas("/key", "new_value", version + 1u).get(); });
 
-    ASSERT_FALSE(bool(cas_result));
+
+    ASSERT_FALSE(cas_result);
     ASSERT_FALSE(cas_result.success);
 
     get_result = client->get("/key").get();
@@ -303,19 +300,18 @@ TEST_F(UnitTestFixture, cas_zero_version_test)
 
     ASSERT_NO_THROW({ cas_result = client->cas("/key", "value").get(); });
 
-    ASSERT_TRUE(bool(cas_result));
+    ASSERT_TRUE(cas_result);
     ASSERT_TRUE(cas_result.success);
 
     ASSERT_NO_THROW({ get_result = client->get("/key").get(); });
     ASSERT_EQ(get_result.value, "value");
     ASSERT_EQ(get_result.version, cas_result.version);
-
     uint64_t version = cas_result.version;
 
 
     ASSERT_NO_THROW({ cas_result = client->cas("/key", "new_value").get(); });
 
-    ASSERT_FALSE(bool(cas_result));
+    ASSERT_FALSE(cas_result);
     ASSERT_FALSE(cas_result.success);
 
     ASSERT_NO_THROW({ get_result = client->get("/key").get(); });
@@ -344,12 +340,11 @@ TEST_F(UnitTestFixture, get_children_test)
 
     ASSERT_NO_THROW({ result = client->get_children("/key").get(); });
 
-    // TODO: consider different children order
-    ASSERT_EQ(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"}));
+    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"})));
 
 
     ASSERT_NO_THROW({ result = client->get_children("/key/child").get(); });
-    ASSERT_EQ(result.children, std::vector<std::string>({"/key/child", "/key/child/grandchild"}));
+    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child/grandchild"})));
 
 
     usedKeys.insert("/key");
