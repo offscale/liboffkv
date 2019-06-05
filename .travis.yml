@@ -25,23 +25,17 @@ before_install:
   - if [ $TRAVIS_OS_NAME == "osx" ] ; then  brew install gcc@7 || brew link --overwrite gcc@7; fi
 
 script:
+  - git clone https://github.com/Microsoft/vcpkg --depth=20 "$HOME/vcpkg" && cd "$_"
   - if [ "$TRAVIS_OS_NAME" == "windows" ]; then
-      git clone https://github.com/Microsoft/vcpkg --depth=20 "%HOME%\vcpkg";
-      cd "%HOME%\vcpkg";
-      bootstrap-vcpkg.bat;
+      .\bootstrap-vcpkg.bat;
       .\vcpkg integrate install;
-      cd "%TRAVIS_BUILD_DIR%";
-      md cmake-build-debug;
-      cd cmake-build-debug;
     else
-      git clone https://github.com/Microsoft/vcpkg --depth=20 "$HOME/vcpkg";
       cd "$HOME/vcpkg";
       ./bootstrap-vcpkg.sh;
       ./vcpkg integrate install;
-      cd "$TRAVIS_BUILD_DIR";
-      mkdir cmake-build-debug && cd "$_"
     fi
   - vcpkg install ppconsul etcdpp zkpp;
-  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="<replace with path to vcpkg.cmake>" -DBUILD_TESTS=ON ..;
+  - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$_"
+  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ..;
   - cmake --build .;
   - ctest;
