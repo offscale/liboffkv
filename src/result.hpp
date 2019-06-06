@@ -62,9 +62,10 @@ private:
     struct OperationResult {
         op::op_type type;
         std::shared_ptr<Result> result;
+        uint64_t version;
 
         OperationResult(op::op_type type, std::shared_ptr<Result> result)
-            : type(type), result(std::move(result))
+            : type(type), result(std::move(result)), version(result->version)
         {}
     };
 
@@ -104,6 +105,11 @@ public:
     void push_back(CreateResult&& res)
     {
         op_results_.push_back({op::op_type::CREATE, std::make_shared<CreateResult>(std::move(res))});
+    }
+
+    OperationResult operator[](size_t index) const
+    {
+        return op_results_[index];
     }
 
     void pop_back()
