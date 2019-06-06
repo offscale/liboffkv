@@ -3,39 +3,57 @@ language: cpp
 git:
   depth: false
 
+cache:
+  directories:
+    - $HOME/vcpkg
+
 matrix:
   include:
     - os: linux
       sudo: true
       env:
         - VCPKG_TRIPLET=x64-linux
+        - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+        - SYSTEM_TRIPLET=linux
+        - PREFERED_ARCHIVE_EXTENSION=tar.gz
       addons:
         apt:
           sources:
             - ubuntu-toolchain-r-test
           packages:
-            - g++-7
+            - g++-8
             - cmake
     - os: osx
       osx_image: xcode10.2
+      env:
+        - MATRIX_EVAL="brew install gcc@7 && CC=gcc-7 && CXX=g++-7"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+        - SYSTEM_TRIPLET=darwin
+        - PREFERED_ARCHIVE_EXTENSION=zip
       sudo: true
-    - os: windows
+    # - os: windows
+    #   env:
+    #     - VCPKG_TRIPLET=x64-windows
+    #     - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
+    #     - SYSTEM_TRIPLET=windows
+    #     - PREFERED_ARCHIVE_EXTENSION=zip
 
 before_install:
-  - if [ $TRAVIS_OS_NAME == "osx" ] ; then  brew install gcc@7 || brew link --overwrite gcc@7; fi
+  - eval "${MATRIX_EVAL}"
+
+before_script:
+  - chmod ug+x $TRAVIS_BUILD_DIR/travis/*.sh
+  - $TRAVIS_BUILD_DIR/travis/prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
+  - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
+  - cd "$HOME/vcpkg"
+  - ./vcpkg upgrade --no-dry-run
+  - ./vcpkg install ppconsul etcdpp zkpp gtest
 
 script:
-  - git clone https://github.com/Microsoft/vcpkg --depth=20 "$HOME/vcpkg" && cd "$_"
-  - if [ "$TRAVIS_OS_NAME" == "windows" ]; then
-      .\bootstrap-vcpkg.bat;
-      .\vcpkg integrate install;
-    else
-      cd "$HOME/vcpkg";
-      ./bootstrap-vcpkg.sh;
-      ./vcpkg integrate install;
-    fi
-  - vcpkg install ppconsul etcdpp zkpp;
-  - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$_"
-  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ..;
-  - cmake --build .;
-  - ctest;
+  - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$TRAVIS_BUILD_DIR/cmake-build-debug"
+  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ..
+  - cmake --build .
+  - $TRAVIS_BUILD_DIR/travis/bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
+  - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
+  - ctest

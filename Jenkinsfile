@@ -4,7 +4,6 @@ pipeline {
       image 'gcc:8.3'
       args '--network host'
     }
-
   }
   stages {
     stage('install-deps') {
@@ -41,18 +40,19 @@ cmake --build .'''
     }
     stage('test') {
       steps {
-        sh 'make test'
+        sh 'cd build && make test'
       }
     }
   }
   post {
     success {
+      sh 'export JOB_TEXT=$(curl ' + env.BUILD_URL + 'consoleText)'
       telegramSend "SUCCESSFUL: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' ${env.BUILD_URL}"
-
     }
 
     failure {
-      telegramSend "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' ${env.BUILD_URL}"
+      sh 'export JOB_TEXT=$(curl ' + env.BUILD_URL + 'consoleText)'
+      telegramSend "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' ${env.BUILD_URL}\n\n${env.JOB_TEXT}"
 
     }
 
