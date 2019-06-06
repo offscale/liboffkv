@@ -43,7 +43,7 @@ private:
         }
         
         for (const auto& child : children)
-            make_recursive_erase_query(query, path + "/" + child, ignore_no_entry);
+            make_recursive_erase_query(query, path + "/" + child);
 
         query.push_back(zk::op::erase(path));
     }
@@ -230,9 +230,9 @@ public:
                     try {
                         return {static_cast<uint64_t>(result.get().stat().data_version.value + 1), true};
                     } catch (zk::error& e) {
-                        if (e.code() == zk::error_code::no_entry) {
-                            return {0, false};
-                        }
+                        if (e.code() == zk::error_code::no_entry)
+                            throw NoEntry{};
+
                         if (e.code() == zk::error_code::version_mismatch) {
                             return thread_pool_->then(
                                 client_.get(path),
@@ -298,12 +298,10 @@ public:
                 auto path = static_cast<std::string>(get_path_(key));
 
                 zk::multi_op txn;
+                txn.push_back(zk::op::check(path));
                 txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
-                try {
-                    make_recursive_erase_query(txn, static_cast<std::string>(get_path_(key)), false);
-                } catch (...) {
-                    continue;
-                }
+
+                make_recursive_erase_query(txn, static_cast<std::string>(get_path_(key)));
 
                 try {
                     auto res = client_.commit(txn).get();
@@ -311,8 +309,6 @@ public:
                 } catch (zk::transaction_failed& e) {
                     if (e.failed_op_index() == 0)
                         throw NoEntry{};
-                } catch (...) {
-                    continue;
                 }
 
                 break;
