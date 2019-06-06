@@ -80,6 +80,46 @@ The library is currently tested on
   make test
   ```
 
+## Usage
+```cpp
+    #include "client.hpp"
+    #include "error.hpp"
+    #include "result.hpp"
+    
+    
+    int main() {
+        // specify protocol (zk | consul | etcd) and address to connect to the service
+        // you can also specify a prefix all the keys will start with
+        auto client = connect("consul://127.0.0.1:8500", "/prefix");
+        
+        // each method returns a future with
+        std::future<CreateResult> result = client->create("/key", "value");
+        
+        // sometimes it is returned with an exception (for more details see "src/client_interface.hpp"
+        try {
+            std::cout << "Key \"/prefix/key\" created successfully! "
+                      << "Its initial version is " << result.get().version << std::endl;
+        } catch (EntryExists&) {
+            std::cout << "Error: key \"/prefix/key\" already exists!" << std::endl;
+        }
+        
+        
+        // commit example (n.b. checks and other ops are separated from each other)
+        client->commit(
+            {
+                {
+                    op::Check("/key", 42u),
+                    op::Check("/foo"),
+                },
+                {
+                    op::erase("/key"),
+                    op::set("/foo", "new_value"),
+                }
+            }
+        ).get();
+    }
+```
+
 ## License
 
 Licensed under either of
