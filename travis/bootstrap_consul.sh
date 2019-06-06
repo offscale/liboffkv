@@ -10,4 +10,4 @@ unzip "$HOME"/consul.${EXT} -d "$HOME/consul"
 rm -f "$HOME"/consul.${EXT}
 cd "$HOME/consul"
 
-./consul agent -dev &
+./consul agent -dev > /dev/null &

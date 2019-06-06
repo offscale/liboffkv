@@ -56,4 +56,5 @@ script:
   - cmake --build .
   - $TRAVIS_BUILD_DIR/travis/bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
   - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
-  - ctest
+  - $TRAVIS_BUILD_DIR/travis/bootstrap_zk.sh
+  - ctest --verbose

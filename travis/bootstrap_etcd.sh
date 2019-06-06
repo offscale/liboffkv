@@ -18,4 +18,4 @@ rm -f "$HOME"/etcd.${EXT}
 cd "$HOME/etcd"
 
 mkdir _data
-./etcd --data-dir "$(pwd)/_data" &
+./etcd --data-dir "$(pwd)/_data" > /dev/null &
