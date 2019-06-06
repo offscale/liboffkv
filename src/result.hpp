@@ -62,9 +62,10 @@ private:
     struct OperationResult {
         op::op_type type;
         std::shared_ptr<Result> result;
+        uint64_t version;
 
         OperationResult(op::op_type type, std::shared_ptr<Result> result)
-            : type(type), result(std::move(result))
+            : type(type), result(std::move(result)), version(result->version)
         {}
     };
 

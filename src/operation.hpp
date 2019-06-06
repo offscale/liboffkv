@@ -75,6 +75,8 @@ std::shared_ptr<op::Erase> erase(const std::string& key)
     return std::make_shared<op::Erase>(key);
 }
 
+using check = Check;
+
 } // namespace op
 
 

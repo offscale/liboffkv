@@ -351,14 +351,132 @@ TEST_F(UnitTestFixture, get_children_test)
 }
 
 
-// TODO
 TEST_F(UnitTestFixture, get_children_with_watch_test)
 {
+    try {
+        client->erase("/key").get();
+    } catch (...) {}
 
+    client->create("/key", "value").get();
+    client->create("/key/child", "value").get();
+    client->create("/key/child/grandchild").get();
+    client->create("/key/dimak24", "value").get();
+
+    std::mutex my_lock;
+    my_lock.lock();
+
+    std::thread([this, &my_lock]() mutable {
+        std::lock_guard<std::mutex> lock_guard(my_lock);
+        client->erase("/key/dimak24").get();
+    }).detach();
+
+    auto result = client->get_children("/key", true).get();
+    my_lock.unlock();
+
+
+    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
+
+    result.watch.get();
+    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child"})));
+
+    usedKeys.insert("/key");
 }
 
-// TODO
+
 TEST_F(UnitTestFixture, commit_test)
 {
+    try {
+        client->erase("/key");
+    } catch (...) {}
 
+    try {
+        client->erase("/foo");
+    } catch (...) {}
+
+
+    auto key_version = client->create("/key", "value").get().version;
+    auto foo_version = client->create("/foo", "value").get().version;
+    auto bar_version = client->create("/foo/bar", "value").get().version;
+
+    // check fails
+    try {
+        client->commit(
+            {
+                op::Check("/key", key_version),
+                op::Check("/foo", foo_version + 1u),
+                op::Check("/foo/bar", bar_version),
+            },
+            {
+                op::create("/key/child", "value"),
+                op::set("/key", "new_value"),
+                op::erase("/foo"),
+            }
+        ).get();
+
+        FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
+    } catch (TransactionFailed& e) {
+        ASSERT_EQ(e.failed_operation_index(), 1);
+    } catch (...) {
+        FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
+    }
+
+    ASSERT_FALSE(client->exists("/key/child").get());
+    ASSERT_EQ(client->get("/key").get().value, "value");
+    ASSERT_TRUE(client->exists("/foo").get());
+
+
+    // op fails
+    try {
+        client->commit(
+            {
+                op::Check("/key", key_version),
+                op::Check("/foo", foo_version),
+                op::Check("/foo/bar", bar_version),
+            },
+            {
+                op::create("/key/child", "value"),
+                op::set("/key/hackerivan", "new_value"),
+                op::erase("/foo"),
+            }
+        ).get();
+
+        FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
+    } catch (TransactionFailed& e) {
+        ASSERT_EQ(e.failed_operation_index(), 5);
+    } catch (...) {
+        FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
+    }
+
+    ASSERT_FALSE(client->exists("/key/child").get());
+    ASSERT_TRUE(client->exists("/foo").get());
+
+
+    // everything is ok
+    TransactionResult result;
+
+    ASSERT_NO_THROW({
+        result = client->commit(
+            {
+                op::Check("/key", key_version),
+                op::Check("/foo", foo_version),
+                op::Check("/foo/bar", bar_version),
+            },
+            {
+                op::create("/key/child", "value"),
+                op::set("/key", "new_value"),
+                op::erase("/foo"),
+            }
+        ).get();
+    });
+
+    ASSERT_TRUE(client->exists("/key/child").get());
+    ASSERT_EQ(client->get("/key").get().value, "new_value");
+    ASSERT_FALSE(client->exists("/foo").get());
+
+
+    ASSERT_GT(result[1].version, key_version);
+
+
+    usedKeys.insert("/key");
+    usedKeys.insert("/foo");
 }
