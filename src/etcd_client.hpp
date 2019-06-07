@@ -303,10 +303,16 @@ public:
 
     ~ETCDHelper()
     {
-        std::unique_lock lock(lock_);
-        if (watch_resolution_thread_running_) {
+        bool do_join;
+        {
+            std::unique_lock lock(lock_);
+            if (watch_stream_) {
+                watch_context_->TryCancel();
+            }
             cq_.Shutdown();
-            lock.unlock();
+            do_join = watch_resolution_thread_running_;
+        }
+        if (do_join) {
             watch_resolution_thread_.join();
         }
     }
