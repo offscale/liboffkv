@@ -121,8 +121,8 @@ private:
         void* tag;
         while (cq_.Next(&tag, &succeeded)) {
             if (!succeeded) {
-                fail_all_watches(ServiceException{"Client shutdown"});
-                break;
+                fail_all_watches(ServiceException{"Watch initialization failure"});
+                continue;
             }
 
             std::unique_lock lock(lock_);
