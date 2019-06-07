@@ -59,14 +59,10 @@ struct CASResult : Result {
 
 class TransactionResult {
 private:
+    // TODO
     struct OperationResult {
         op::op_type type;
-        std::shared_ptr<Result> result;
         uint64_t version;
-
-        OperationResult(op::op_type type, std::shared_ptr<Result> result)
-            : type(type), result(std::move(result)), version(result->version)
-        {}
     };
 
 
@@ -99,15 +95,15 @@ public:
 
     void push_back(SetResult&& res)
     {
-        op_results_.push_back({op::op_type::SET, std::make_shared<SetResult>(std::move(res))});
+        op_results_.push_back({op::op_type::SET, res.version});
     }
 
     void push_back(CreateResult&& res)
     {
-        op_results_.push_back({op::op_type::CREATE, std::make_shared<CreateResult>(std::move(res))});
+        op_results_.push_back({op::op_type::CREATE, res.version});
     }
 
-    OperationResult operator[](size_t index) const
+    const OperationResult& operator[](size_t index) const
     {
         return op_results_[index];
     }

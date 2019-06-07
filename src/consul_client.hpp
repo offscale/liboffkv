@@ -11,7 +11,7 @@
 
 class ConsulClient : public Client {
 private:
-    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(10);
+    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(20);
 
     static constexpr auto TTL = std::chrono::seconds(10);
 
@@ -49,7 +49,7 @@ private:
 
     std::future<void> get_watch_future_(const std::string& key, uint64_t old_version) const
     {
-        return std::async([this, key, old_version] {
+        return std::async(std::launch::async, [this, key, old_version] {
             std::unique_lock lock(lock_);
             kv_->item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
@@ -277,7 +277,7 @@ public:
 
             for (const auto& check : transaction.checks())
                 requests.push_back(check.version ? TxnRequest::checkIndex(get_path_(check.key),
-                                                                          static_cast<uint64_t>(check.version - 1))
+                                                                          static_cast<uint64_t>(check.version))
                                                  : TxnRequest::get(get_path_(check.key)));
 
             std::vector<int> set_indices, create_indices;
@@ -285,7 +285,6 @@ public:
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
-                    // fix it
                     case op::op_type::CREATE: {
                         auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
                         requests.push_back(TxnRequest::set(
@@ -313,8 +312,8 @@ public:
                         ++_j;
                         break;
                     }
-                    // default:
-                        // __builtin_unreachable();
+                    default:
+                        __builtin_unreachable();
                 }
             };
 
@@ -325,15 +324,15 @@ public:
                 int i = 0, j = 0;
                 while (i < create_indices.size() && j < set_indices.size())
                     if (create_indices[i] < set_indices[j]) {
-                        result.push_back(CreateResult{1});
+                        result.push_back(CreateResult{commit_result[create_indices[i]].modifyIndex});
                         ++i;
                     } else {
                         result.push_back(SetResult{commit_result[set_indices[j]].modifyIndex});
                         ++j;
                     }
 
-                while (i++ < create_indices.size())
-                    result.push_back(CreateResult{commit_result[set_indices[j++]].modifyIndex});
+                while (i < create_indices.size())
+                    result.push_back(CreateResult{commit_result[create_indices[i++]].modifyIndex});
 
                 while (j < set_indices.size())
                     result.push_back(SetResult{commit_result[set_indices[j++]].modifyIndex});

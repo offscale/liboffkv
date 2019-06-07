@@ -379,21 +379,24 @@ private:
         return full_path.substr(prefix_.size() + 1);
     }
 
-    RangeRequest* const add_success_range(TxnRequest& txn) const {
+    RangeRequest* const add_success_range(TxnRequest& txn) const
+    {
         auto* rq = new RangeRequest();
         auto op = txn.add_success();
         op->set_allocated_request_range(rq);
         return rq;
     }
 
-    RangeRequest* const add_failure_range(TxnRequest& txn) const {
+    RangeRequest* const add_failure_range(TxnRequest& txn) const
+    {
         auto* rq = new RangeRequest();
         auto op = txn.add_failure();
         op->set_allocated_request_range(rq);
         return rq;
     }
 
-    const TxnRequest build_txn_check_parent(const Key& key) const {
+    const TxnRequest build_txn_check_parent(const Key& key) const
+    {
         auto entries = key.get_sequence();
         TxnRequest txn;
 
@@ -408,7 +411,8 @@ private:
         return txn;
     }
 
-    const TxnRequest build_set_operation(const Key& key, const std::string& value, bool expect_lease_exists) {
+    const TxnRequest build_set_operation(const Key& key, const std::string& value, bool expect_lease_exists)
+    {
         TxnRequest txn = build_txn_check_parent(key);
 
         if (!expect_lease_exists) {

@@ -132,22 +132,18 @@ TEST_F(UnitTestFixture, exists_with_watch_test)
 
     client->create("/key", "value").get();
 
-    std::mutex my_lock;
-    my_lock.lock();
-
-    std::thread([this, &my_lock]() mutable {
-        std::lock_guard<std::mutex> lock_guard(my_lock);
-        client->erase("/key").get();
-    }).detach();
-
     auto result = client->exists("/key", true).get();
-    my_lock.unlock();
-
 
     ASSERT_TRUE(result);
 
+
+    client->erase("/key").get();
     result.watch.get();
     ASSERT_FALSE(client->exists("/key").get());
+
+
+    if (client->exists("/key", true).get().watch.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+        FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
 }
@@ -229,22 +225,17 @@ TEST_F(UnitTestFixture, get_with_watch_test)
 
     client->create("/key", "value").get();
 
-    std::mutex my_lock;
-    my_lock.lock();
-
-    std::thread([this, &my_lock]() mutable {
-        std::lock_guard<std::mutex> lock_guard(my_lock);
-        client->set("/key", "newValue").get();
-    }).detach();
-
     auto result = client->get("/key", true).get();
-    my_lock.unlock();
-
 
     ASSERT_EQ(result.value, "value");
 
+    client->set("/key", "newValue").get();
     result.watch.get();
     ASSERT_EQ(client->get("/key").get().value, "newValue");
+
+
+    if (client->get("/key", true).get().watch.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+        FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
 }
@@ -362,22 +353,19 @@ TEST_F(UnitTestFixture, get_children_with_watch_test)
     client->create("/key/child/grandchild", "value").get();
     client->create("/key/dimak24", "value").get();
 
-    std::mutex my_lock;
-    my_lock.lock();
-
-    std::thread([this, &my_lock]() mutable {
-        std::lock_guard<std::mutex> lock_guard(my_lock);
-        client->erase("/key/dimak24").get();
-    }).detach();
-
     auto result = client->get_children("/key", true).get();
-    my_lock.unlock();
-
 
     ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
 
+    client->erase("/key/dimak24").get();
     result.watch.get();
-    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child"})));
+
+    ASSERT_TRUE(equal_as_sets(client->get_children("/key").get().children,
+                              std::vector<std::string>({"/key/child"})));
+
+
+    if (client->get_children("/key", true).get().watch.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+        FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
 }
@@ -438,7 +426,7 @@ TEST_F(UnitTestFixture, commit_test)
                 },
                 {
                     op::create("/key/child", "value"),
-                    op::set("/key/hackerivan", "new_value"),
+                    op::set("/key/subkey/hackerivan", "new_value"),
                     op::erase("/foo"),
                 }
             }
