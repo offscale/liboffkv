@@ -35,17 +35,21 @@ private:
     void make_recursive_erase_query(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
     {
         zk::get_children_result::children_list_type children;
+        bool entry_valid = true;
         try {
             children = client_.get_children(path).get().children();
         } catch (zk::no_entry& err) {
             if (!ignore_no_entry)
                 throw err;
+            entry_valid = false;
         }
-        
-        for (const auto& child : children)
-            make_recursive_erase_query(query, path + "/" + child);
 
-        query.push_back(zk::op::erase(path));
+        if (entry_valid) {
+            for (const auto& child : children)
+                make_recursive_erase_query(query, path + "/" + child, true);
+
+            query.push_back(zk::op::erase(path));
+        }
     }
 
     const Key get_path_(const std::string& key) const
@@ -292,28 +296,31 @@ public:
 
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
-        // TODO: transaction cas loop to avoid NotEmpty errors
-        return thread_pool_->async([this, key, version] {
-            while (true) {
-                auto path = static_cast<std::string>(get_path_(key));
+        return thread_pool_->then(
+            thread_pool_->async([this, key, version] {
+                while (true) {
+                    auto path = static_cast<std::string>(get_path_(key));
 
-                zk::multi_op txn;
-                txn.push_back(zk::op::check(path));
-                txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
+                    zk::multi_op txn;
+                    txn.push_back(zk::op::check(path));
+                    txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
 
-                make_recursive_erase_query(txn, static_cast<std::string>(get_path_(key)));
+                    make_recursive_erase_query(txn, static_cast<std::string>(get_path_(key)), false);
 
-                try {
-                    auto res = client_.commit(txn).get();
-                    return;
-                } catch (zk::transaction_failed& e) {
-                    if (e.failed_op_index() == 0)
-                        throw NoEntry{};
+                    try {
+                        auto res = client_.commit(txn).get();
+                        return;
+                    } catch (zk::transaction_failed& e) {
+                        if (e.failed_op_index() == 0)
+                            throw NoEntry{};
+                        if (e.failed_op_index() == 1)
+                            return;
+                    }
                 }
-
-                break;
-            }
-        });
+            }),
+            call_get<void>,
+            true
+        );
     }
 
     std::future<TransactionResult> commit(const Transaction& transaction)
