@@ -61,8 +61,8 @@ bool equal_as_sets(const std::vector<T>& v1, const std::vector<T>& v2)
     if (v1.size() != v2.size())
         return false;
 
-    std::multiset m1(v1.begin(), v1.end());
-    std::multiset m2(v2.begin(), v2.end());
+    std::multiset<T> m1(v1.begin(), v1.end());
+    std::multiset<T> m2(v2.begin(), v2.end());
 
     return m1 == m2;
 }
