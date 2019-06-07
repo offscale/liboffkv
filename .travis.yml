@@ -48,7 +48,7 @@ before_script:
   - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
   - cd "$HOME/vcpkg"
   - ./vcpkg upgrade --no-dry-run
-  - ./vcpkg install ppconsul etcdpp zkpp gtest
+  - ./vcpkg install ppconsul etcdpp zkpp gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
 
 script:
   - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$TRAVIS_BUILD_DIR/cmake-build-debug"
