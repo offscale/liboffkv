@@ -9,6 +9,8 @@
 #include "time_machine.hpp"
 
 
+using namespace liboffkv;
+
 TEST(time_machine_test, test_1)
 {
     time_machine::ThreadPool<std::promise, std::future> timeMachine;

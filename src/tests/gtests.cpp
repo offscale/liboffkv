@@ -13,6 +13,8 @@
 #include "util.hpp"
 
 
+using namespace liboffkv;
+
 
 class UnitTestFixture : public ::testing::Test {
 public:
@@ -331,11 +333,11 @@ TEST_F(UnitTestFixture, get_children_test)
 
     ASSERT_NO_THROW({ result = client->get_children("/key").get(); });
 
-    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"})));
+    ASSERT_TRUE(util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"})));
 
 
     ASSERT_NO_THROW({ result = client->get_children("/key/child").get(); });
-    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child/grandchild"})));
+    ASSERT_TRUE(util::equal_as_sets(result.children, std::vector<std::string>({"/key/child/grandchild"})));
 
 
     usedKeys.insert("/key");
@@ -355,12 +357,12 @@ TEST_F(UnitTestFixture, get_children_with_watch_test)
 
     auto result = client->get_children("/key", true).get();
 
-    ASSERT_TRUE(equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
+    ASSERT_TRUE(util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
 
     client->erase("/key/dimak24").get();
     result.watch.get();
 
-    ASSERT_TRUE(equal_as_sets(client->get_children("/key").get().children,
+    ASSERT_TRUE(util::equal_as_sets(client->get_children("/key").get().children,
                               std::vector<std::string>({"/key/child"})));
 
 

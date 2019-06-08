@@ -1,15 +1,13 @@
 #pragma once
 
 #include <utility>
-
-
-
 #include <string>
 
 
 #include "operation.hpp"
 
 
+namespace liboffkv {
 
 struct Result {
     uint64_t version = 0;
@@ -128,3 +126,5 @@ public:
         return succeeded_;
     }
 };
+
+} // namespace liboffkv

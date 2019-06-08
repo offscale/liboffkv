@@ -21,11 +21,12 @@
 #include "util.hpp"
 
 
+namespace liboffkv {
 
 std::unique_ptr<Client> connect(const std::string& address, const std::string& prefix="",
                                 std::shared_ptr<time_machine::ThreadPool<>> tm = nullptr)
 {
-    auto [protocol, host_port] = get_protocol_address(address);
+    auto [protocol, host_port] = util::get_protocol_address(address);
 
 #ifdef ENABLE_ZK
     if (protocol == "zk")
@@ -44,3 +45,5 @@ std::unique_ptr<Client> connect(const std::string& address, const std::string& p
 
     throw InvalidAddress(std::string("protocol \"") + protocol + "\" not allowed");
 }
+
+} // namespace liboffkv

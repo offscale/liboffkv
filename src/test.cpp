@@ -7,6 +7,8 @@
 #include "operation.hpp"
 #include "time_machine.hpp"
 
+using namespace liboffkv;
+
 
 
 auto tm = std::make_shared<time_machine::ThreadPool<>>();

@@ -15,6 +15,9 @@
 #include "time_machine.hpp"
 
 
+namespace liboffkv {
+
+namespace helper {
 
 class ETCDHelper {
 public:
@@ -169,7 +172,7 @@ private:
         cancel_req->set_watch_id(watch_id);
         WatchRequest req;
         req.set_allocated_cancel_request(cancel_req);
-        thread_pool_->then(write_to_watch_stream_m(req, lock), call_get<void>);
+        thread_pool_->then(write_to_watch_stream_m(req, lock), util::call_get<void>);
     }
 
     const bool process_watch_response_m(const WatchResponse& response)
@@ -318,6 +321,8 @@ public:
     }
 };
 
+} // namespace helper
+
 
 class ETCDClient : public Client {
 private:
@@ -333,6 +338,9 @@ private:
     using TxnResponse = etcdserverpb::TxnResponse;
     using Compare = etcdserverpb::Compare;
     using RequestOp = etcdserverpb::RequestOp;
+
+    using Key = key::Key;
+    using ETCDHelper = helper::ETCDHelper;
 
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<KV::Stub> stub_;
@@ -696,7 +704,7 @@ public:
         if (version == 0)
             return thread_pool_->then(create(key, value), [](std::future<CreateResult>&& res) -> CASResult {
                 try {
-                    return {call_get(std::move(res)).version, true};
+                    return {util::call_get(std::move(res)).version, true};
                 } catch (EntryExists&) {
                     return {0, false};
                 }
@@ -1015,3 +1023,5 @@ public:
             });
     }
 };
+
+} // namespace liboffkv

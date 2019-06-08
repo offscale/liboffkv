@@ -13,8 +13,7 @@
 #include <vector>
 
 
-
-namespace time_machine {
+namespace liboffkv { namespace time_machine {
 
 class QueueClosed : public std::runtime_error {
 public:
@@ -318,4 +317,4 @@ private:
     unsigned long long wait_for_object_ms_;
 };
 
-} // namespace time_machine
+}} // namespace time_machine, liboffkv

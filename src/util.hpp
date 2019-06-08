@@ -7,6 +7,18 @@
 #include "error.hpp"
 
 
+namespace liboffkv { namespace util {
+
+namespace detail {
+
+template <size_t from, typename... Ts, std::size_t... indices>
+auto subtuple_impl(const std::tuple<Ts...>& tpl, std::index_sequence<indices...>)
+{
+    return std::make_tuple(std::get<from + indices>(tpl)...);
+}
+
+} // namespace detail
+
 
 std::pair<std::string, std::string> get_protocol_address(const std::string& address)
 {
@@ -20,18 +32,11 @@ std::pair<std::string, std::string> get_protocol_address(const std::string& addr
 }
 
 
-template <size_t from, typename... Ts, std::size_t... indices>
-auto subtuple_impl(const std::tuple<Ts...>& tpl, std::index_sequence<indices...>)
-{
-    return std::make_tuple(std::get<from + indices>(tpl)...);
-}
-
-
 template <size_t from, size_t len, typename... Ts>
 auto subtuple(const std::tuple<Ts...>& tpl)
 {
     static_assert(from + len <= sizeof...(Ts));
-    return subtuple_impl<from>(tpl, std::make_index_sequence<len>());
+    return detail::subtuple_impl<from>(tpl, std::make_index_sequence<len>());
 }
 
 
@@ -66,3 +71,30 @@ bool equal_as_sets(const std::vector<T>& v1, const std::vector<T>& v2)
 
     return m1 == m2;
 }
+
+
+template <class T>
+T call_get(std::future<T>&& future)
+{
+    try {
+        return future.get();
+    } liboffkv_catch
+}
+
+template <class T>
+void call_get_ignore(std::future<T>&& future)
+{
+    try {
+        future.get();
+    } liboffkv_catch
+}
+
+template <class T>
+void call_get_ignore_noexcept(std::future<T>&& future)
+{
+    try {
+        future.get();
+    } catch (...) {}
+}
+
+}} // namespace util, liboffkv

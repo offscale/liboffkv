@@ -13,7 +13,6 @@
 #include <zk/error.hpp>
 
 
-
 #define liboffkv_catch_zk \
     catch (zk::error& e) {\
         switch (e.code()) {\
@@ -39,11 +38,11 @@
 #define liboffkv_catch_zk
 #endif
 
+
 #ifdef ENABLE_CONSUL
 
 #include <ppconsul/error.h>
 #include <ppconsul/kv.h>
-
 
 
 #define liboffkv_catch_consul \
@@ -56,12 +55,19 @@
 #define liboffkv_catch_consul
 #endif
 
+
 // used to avoid compilation errors when zk and consul are disabled
 #define liboffkv_catch_default \
     catch (...) {\
         std::rethrow_exception(std::current_exception());\
     }\
 
+
+#define liboffkv_catch liboffkv_catch_zk liboffkv_catch_consul liboffkv_catch_default
+
+
+
+namespace liboffkv {
 
 class InvalidAddress : public std::exception {
 private:
@@ -158,8 +164,6 @@ public:
 };
 
 
-
-
 class ServiceException : public std::runtime_error {
 public:
     ServiceException(const std::string& arg)
@@ -167,30 +171,4 @@ public:
     {}
 };
 
-
-#define liboffkv_catch liboffkv_catch_zk liboffkv_catch_consul liboffkv_catch_default
-
-
-template <class T>
-T call_get(std::future<T>&& future)
-{
-    try {
-        return future.get();
-    } liboffkv_catch
-}
-
-template <class T>
-void call_get_ignore(std::future<T>&& future)
-{
-    try {
-        future.get();
-    } liboffkv_catch
-}
-
-template <class T>
-void call_get_ignore_noexcept(std::future<T>&& future)
-{
-    try {
-        future.get();
-    } catch (...) {}
-}
+} // namespace liboffkv

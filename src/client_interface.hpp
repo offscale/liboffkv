@@ -9,6 +9,7 @@
 #include "key.hpp"
 
 
+namespace liboffkv {
 
 class Client {
 protected:
@@ -111,3 +112,5 @@ public:
     virtual
     std::future<TransactionResult> commit(const Transaction&) = 0;
 };
+
+} // namespace liboffkv

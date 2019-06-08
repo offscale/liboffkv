@@ -12,10 +12,13 @@
 #include "key.hpp"
 
 
+namespace liboffkv {
 
 class ZKClient : public Client {
 private:
     using buffer = zk::buffer;
+
+    using Key = key::Key;
 
     zk::client client_;
     std::string prefix_;
@@ -66,7 +69,7 @@ public:
           prefix_(prefix)
     {
         if (!prefix.empty()) {
-            const std::vector<std::string> entries = get_entry_sequence(prefix);
+            const std::vector<std::string> entries = key::get_entry_sequence(prefix);
             for (const auto& e : entries) {
                 // start all operations asynchronously
                 // because ZK guarantees sequential consistency
@@ -94,7 +97,7 @@ public:
                 !lease ? zk::create_mode::normal : zk::create_mode::ephemeral
             ),
             [](std::future<zk::create_result>&& res) -> CreateResult {
-                call_get_ignore(std::move(res));
+                util::call_get_ignore(std::move(res));
                 return {1};
             }
         );
@@ -106,20 +109,20 @@ public:
             return thread_pool_->then(
                 client_.watch_exists(static_cast<std::string>(get_path_(key))),
                 [tp = thread_pool_](std::future<zk::watch_exists_result>&& result) -> ExistsResult {
-                    zk::watch_exists_result unwrapped = call_get(std::move(result));
+                    zk::watch_exists_result unwrapped = util::call_get(std::move(result));
                     auto stat = unwrapped.initial().stat();
 
                     return {
                         stat.has_value() ? static_cast<uint64_t>(stat.value().data_version.value + 1) : 0,
                         !!unwrapped.initial(),
-                        tp->then(std::move(unwrapped.next()), call_get_ignore<zk::event>).share()
+                        tp->then(std::move(unwrapped.next()), util::call_get_ignore<zk::event>).share()
                     };
                 });
 
         return thread_pool_->then(
             client_.exists(static_cast<std::string>(get_path_(key))),
             [](std::future<zk::exists_result>&& result) -> ExistsResult {
-                zk::exists_result unwrapped = call_get(std::move(result));
+                zk::exists_result unwrapped = util::call_get(std::move(result));
                 auto stat = unwrapped.stat();
 
                 return {stat.has_value()
@@ -135,11 +138,11 @@ public:
             return thread_pool_->then(
                 client_.watch_children(static_cast<std::string>(get_path_(key))),
                 [this, key](std::future<zk::watch_children_result>&& result) -> ChildrenResult {
-                    zk::watch_children_result unwrapped = call_get(std::move(result));
+                    zk::watch_children_result unwrapped = util::call_get(std::move(result));
                     const std::vector<std::string>& raw_children = unwrapped.initial().children();
                     return {
-                        map_vector(raw_children, [this, key](const auto& child) { return key + "/" + child; }),
-                        thread_pool_->then(std::move(unwrapped.next()), call_get_ignore<zk::event>)
+                        util::map_vector(raw_children, [this, key](const auto& child) { return key + "/" + child; }),
+                        thread_pool_->then(std::move(unwrapped.next()), util::call_get_ignore<zk::event>)
                     };
                 }
             );
@@ -147,10 +150,10 @@ public:
         return thread_pool_->then(
             client_.get_children(static_cast<std::string>(get_path_(key))),
             [this, key](std::future<zk::get_children_result>&& result) -> ChildrenResult {
-                zk::get_children_result unwrapped = call_get(std::move(result));
+                zk::get_children_result unwrapped = util::call_get(std::move(result));
                 const std::vector<std::string>& raw_children = unwrapped.children();
                 return {
-                    map_vector(raw_children, [this, key](const auto& child) { return key + "/" + child; })
+                    util::map_vector(raw_children, [this, key](const auto& child) { return key + "/" + child; })
                 };
             }
         );
@@ -166,15 +169,15 @@ public:
             client_.create(path, from_string(value)),
             [this, path, value](std::future<zk::create_result>&& res) -> SetResult {
                 try {
-                    call_get(std::move(res));
+                    util::call_get(std::move(res));
                     return {1};
                 } catch (EntryExists&) {
-                    return call_get(thread_pool_->then(
+                    return util::call_get(thread_pool_->then(
                         client_.set(path, from_string(value)),
                         [path](std::future<zk::set_result>&& result) -> SetResult {
                             try {
                                 return {
-                                    static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value + 1)};
+                                    static_cast<uint64_t>(util::call_get(std::move(result)).stat().data_version.value + 1)};
                             } catch (NoEntry&) {
                                 // concurrent remove happened
                                 // but set must not throw NoEntry
@@ -200,15 +203,15 @@ public:
                 create(key, value),
                 [this, path, value](std::future<CreateResult>&& res) -> CASResult {
                     try {
-                        call_get(std::move(res));
+                        util::call_get(std::move(res));
                         return {1, true};
                     } catch (EntryExists&) {
-                        return call_get(thread_pool_->then(
+                        return util::call_get(thread_pool_->then(
                             client_.get(path),
                             [](std::future<zk::get_result>&& result) -> CASResult {
                                 try {
                                     return {
-                                        static_cast<uint64_t>(call_get(std::move(result)).stat().data_version.value +
+                                        static_cast<uint64_t>(util::call_get(std::move(result)).stat().data_version.value +
                                                               1),
                                         false
                                     };
@@ -244,7 +247,7 @@ public:
                                     try {
                                         return {
                                             static_cast<uint64_t>(
-                                                call_get(std::move(result)).stat().data_version.value + 1),
+                                                util::call_get(std::move(result)).stat().data_version.value + 1),
                                             false
                                         };
                                     } catch (zk::error& e) {
@@ -264,7 +267,7 @@ public:
                     }
                 }
             ),
-            call_get<CASResult>
+            util::call_get<CASResult>
         );
     }
 
@@ -274,12 +277,12 @@ public:
             return thread_pool_->then(
                 client_.watch(static_cast<std::string>(get_path_(key))),
                 [tp = thread_pool_](std::future<zk::watch_result>&& result) -> GetResult {
-                    auto full_res = call_get(std::move(result));
+                    auto full_res = util::call_get(std::move(result));
                     auto res = full_res.initial();
                     return {
                         static_cast<uint64_t>(res.stat().data_version.value + 1),
                         to_string(res.data()),
-                        tp->then(std::move(full_res.next()), call_get_ignore<zk::event>).share()
+                        tp->then(std::move(full_res.next()), util::call_get_ignore<zk::event>).share()
                     };
                 }
             );
@@ -288,7 +291,7 @@ public:
         return thread_pool_->then(
             client_.get(static_cast<std::string>(get_path_(key))),
             [](std::future<zk::get_result>&& result) -> GetResult {
-                auto res = call_get(std::move(result));
+                auto res = util::call_get(std::move(result));
                 return {static_cast<uint64_t>(res.stat().data_version.value + 1), to_string(res.data())};
             }
         );
@@ -318,7 +321,7 @@ public:
                     }
                 }
             }),
-            call_get<void>,
+            util::call_get<void>,
             true
         );
     }
@@ -362,7 +365,7 @@ public:
         return thread_pool_->then(client_.commit(trn), [](std::future<zk::multi_result>&& multi_res) {
             TransactionResult result;
 
-            auto multi_res_unwrapped = call_get(std::move(multi_res));
+            auto multi_res_unwrapped = util::call_get(std::move(multi_res));
 
             for (const auto& res : multi_res_unwrapped) {
                 switch (res.type()) {
@@ -383,3 +386,5 @@ public:
         });
     }
 };
+
+} // namespace liboffkv

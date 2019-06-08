@@ -6,6 +6,7 @@
 #include "error.hpp"
 
 
+namespace liboffkv { namespace key {
 
 namespace detail {
 
@@ -78,6 +79,8 @@ bool verify_unit(const std::string& unit)
 } // namespace detail
 
 /*
+ * parses raw key
+ *
  * /foo/bar/baz => std::vector<std::string>{"/foo", "/foo/bar", "/foo/bar/baz"}
  *
  * throws InvalidKey if key is incorrect
@@ -219,3 +222,5 @@ public:
         return res;
     }
 };
+
+}} // namespace key, liboffkv

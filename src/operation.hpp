@@ -3,6 +3,8 @@
 #include "util.hpp"
 
 
+namespace liboffkv {
+
 namespace op {
 
 enum class op_type {
@@ -128,3 +130,5 @@ public:
         return operations_;
     }
 };
+
+} // namespace liboffkv

@@ -8,6 +8,7 @@
 #include "key.hpp"
 
 
+namespace liboffkv {
 
 class ConsulClient : public Client {
 private:
@@ -19,6 +20,8 @@ private:
     using Kv = ppconsul::kv::Kv;
     using TxnRequest = ppconsul::kv::TxnRequest;
     using TxnError = ppconsul::kv::TxnError;
+
+    using Key = key::Key;
 
     Consul client_;
     std::unique_ptr<Kv> kv_;
@@ -153,8 +156,8 @@ public:
                         watch_future = get_watch_future_(key, res.back().modifyIndex);
 
                     return {
-                        map_vector(
-                            filter_vector(
+                        util::map_vector(
+                            util::filter_vector(
                                 std::vector<ppconsul::kv::KeyValue>(res.begin(), --res.end()),
                                 [key = static_cast<std::string>(key)](const auto& key_value) {
                                     return key_value.key != key &&
@@ -206,7 +209,7 @@ public:
                             CreateResult unwrapped;
 
                             try {
-                                unwrapped = call_get(std::move(result));
+                                unwrapped = util::call_get(std::move(result));
                                 return {unwrapped.version, true};
                             } catch (EntryExists&) {
                                 return {0, false};
@@ -375,3 +378,5 @@ public:
         });
     }
 };
+
+} // namespace liboffkv

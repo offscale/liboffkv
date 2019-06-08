@@ -20,6 +20,8 @@
 #include <ppconsul/kv.h>
 
 
+using namespace liboffkv;
+
 
 class MoveTest {
 private:
