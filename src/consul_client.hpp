@@ -280,25 +280,47 @@ public:
                                                                           static_cast<uint64_t>(check.version))
                                                  : TxnRequest::get(get_path_(check.key)));
 
-            std::vector<int> set_indices, create_indices;
+            std::vector<int> set_indices, create_indices, support_indices;
             int _j = transaction.checks().size();
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
                     case op::op_type::CREATE: {
                         auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
+
+                        auto key = get_path_(create_op_ptr->key);
+                        auto parent = key.get_parent();
+
+                        if (parent.size()) {
+                            requests.push_back(TxnRequest::get(parent));
+                            support_indices.push_back(_j++);
+                        }
+
+                        requests.push_back(TxnRequest::checkNotExists(key));
+                        support_indices.push_back(_j++);
+
                         requests.push_back(TxnRequest::set(
-                            get_path_(create_op_ptr->key),
+                            key,
                             create_op_ptr->value
                         ));
 
                         create_indices.push_back(_j++);
+
                         break;
                     }
                     case op::op_type::SET: {
                         auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
+
+                        auto key = get_path_(set_op_ptr->key);
+                        auto parent = key.get_parent();
+
+                        if (parent.size()) {
+                            requests.push_back(TxnRequest::get(parent));
+                            support_indices.push_back(_j++);
+                        }
+
                         requests.push_back(TxnRequest::set(
-                            get_path_(set_op_ptr->key),
+                            key,
                             set_op_ptr->value
                         ));
 
@@ -307,7 +329,13 @@ public:
                     }
                     case op::op_type::ERASE: {
                         auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                        requests.push_back(TxnRequest::eraseAll(get_path_(erase_op_ptr->key)));
+
+                        auto key = get_path_(op_ptr->key);
+
+                        requests.push_back(TxnRequest::get(key));
+                        support_indices.push_back(_j++);
+
+                        requests.push_back(TxnRequest::eraseAll(key));
 
                         ++_j;
                         break;
@@ -339,7 +367,10 @@ public:
 
                 return result;
             } catch (TxnError& e) {
-                throw TransactionFailed{static_cast<size_t>(e.index())};
+                auto it = std::upper_bound(support_indices.begin(), support_indices.end(), e.index());
+
+                throw TransactionFailed{static_cast<size_t>(
+                    e.index() - std::distance(support_indices.begin(), it) + (e.index() == *(it - 1)))};
             }
         });
     }

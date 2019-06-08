@@ -876,7 +876,7 @@ public:
 
                 for (const auto& check : transaction.checks()) {
                     auto cmp = txn.add_compare();
-                    cmp->set_key(check.key);
+                    cmp->set_key(get_path_(check.key));
                     cmp->set_target(Compare::VERSION);
                     cmp->set_result(Compare::EQUAL);
                     cmp->set_version(check.version);
@@ -886,37 +886,61 @@ public:
                     switch (op_ptr->type) {
                         case op::op_type::CREATE: {
                             auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
+                            auto key = get_path_(create_op_ptr->key);
+                            auto parent = key.get_parent();
+
+                            if (parent.size()) {
+                                auto cmp = txn.add_compare();
+                                cmp->set_key(parent);
+                                cmp->set_target(Compare::CREATE);
+                                cmp->set_result(Compare::GREATER);
+                                cmp->set_create_revision(0);
+                            }
+
+                            auto cmp = txn.add_compare();
+                            cmp->set_key(key);
+                            cmp->set_target(Compare::CREATE);
+                            cmp->set_result(Compare::EQUAL);
+                            cmp->set_create_revision(0);
 
                             auto request = new PutRequest();
-                            request->set_key(create_op_ptr->key);
+                            request->set_key(key);
                             request->set_value(create_op_ptr->value);
 
-                            if (create_op_ptr->leased) {
-                                request->set_lease(helper_.get_lease());
-                            } else {
-                                request->set_lease(0);
-                            }
+//                            if (create_op_ptr->leased) {
+//                                request->set_lease(helper_.get_lease());
+//                            } else {
+//                                request->set_lease(0);
+//                            }
 
                             auto requestOP = txn.add_success();
                             requestOP->set_allocated_request_put(request);
 
-                            create_indices.push_back(_i + 1);
-
-                            _i += 2;
+                            create_indices.push_back(_i++);
                             break;
                         }
                         case op::op_type::SET: {
                             auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
+                            auto key = get_path_(set_op_ptr->key);
+                            auto parent = key.get_parent();
+
+                            if (parent.size()) {
+                                auto cmp = txn.add_compare();
+                                cmp->set_key(parent);
+                                cmp->set_target(Compare::CREATE);
+                                cmp->set_result(Compare::GREATER);
+                                cmp->set_create_revision(0);
+                            }
 
                             auto request = new PutRequest();
-                            request->set_key(set_op_ptr->key);
+                            request->set_key(key);
                             request->set_value(set_op_ptr->value);
 
                             auto requestOP = txn.add_success();
                             requestOP->set_allocated_request_put(request);
 
                             auto get_request = new RangeRequest();
-                            get_request->set_key(set_op_ptr->key);
+                            get_request->set_key(key);
                             get_request->set_limit(1);
 
                             auto get_requestOP = txn.add_success();
@@ -930,9 +954,16 @@ public:
                         }
                         case op::op_type::ERASE: {
                             auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
+                            auto key = get_path_(erase_op_ptr->key);
+
+                            auto cmp = txn.add_compare();
+                            cmp->set_key(key);
+                            cmp->set_target(Compare::CREATE);
+                            cmp->set_result(Compare::GREATER);
+                            cmp->set_create_revision(0);
 
                             auto request = new DeleteRangeRequest();
-                            request->set_key(erase_op_ptr->key);
+                            request->set_key(key);
 
                             auto requestOP = txn.add_success();
                             requestOP->set_allocated_request_delete_range(request);
