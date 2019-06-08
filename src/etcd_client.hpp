@@ -178,7 +178,7 @@ private:
 
         auto handler_it = watch_handlers_.find(response.watch_id());
         if (handler_it == watch_handlers_.end()) {
-            return false;
+            return true;
         }
         WatchHandler& handler = handler_it->second;
 
@@ -568,7 +568,7 @@ public:
                     watch_future = watch_promise->get_future();
                     ETCDHelper::WatchCreateRequest watch_request;
                     watch_request.set_key(key);
-                    watch_request.set_start_revision(response.header().revision());
+                    watch_request.set_start_revision(response.header().revision() + 1);
                     helper_.create_watch(watch_request, {
                         [promise = watch_promise, exists](const ETCDHelper::Event& ev) {
                             if ((ev.type() == ETCDHelper::EventType::Event_EventType_DELETE && exists) ||
@@ -638,13 +638,15 @@ public:
                 ETCDHelper::WatchCreateRequest watch_request;
                 watch_request.set_key(key_begin);
                 watch_request.set_range_end(key_end);
-                watch_request.set_start_revision(response.header().revision());
+                watch_request.set_start_revision(response.header().revision() + 1);
                 helper_.create_watch(watch_request, {
                     [promise = watch_promise, old_keys = std::move(raw_keys)](const ETCDHelper::Event& ev) {
                         bool old = old_keys.find(ev.kv().key()) != old_keys.end();
                         if ((old && ev.type() == ETCDHelper::EventType::Event_EventType_DELETE) ||
-                            (!old && ev.type() == ETCDHelper::EventType::Event_EventType_PUT))
+                               (!old && ev.type() == ETCDHelper::EventType::Event_EventType_PUT)) {
+                            promise->set_value();
                             return true;
+                        }
                         return false;
                     },
                     create_watch_failure_handler(watch_promise)
@@ -785,7 +787,7 @@ public:
                     watch_future = watch_promise->get_future();
                     ETCDHelper::WatchCreateRequest watch_request;
                     watch_request.set_key(key);
-                    watch_request.set_start_revision(response.header().revision());
+                    watch_request.set_start_revision(response.header().revision() + 1);
                     helper_.create_watch(watch_request, {
                         [promise = watch_promise](const ETCDHelper::Event& event) mutable {
                             promise->set_value();

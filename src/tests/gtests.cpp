@@ -142,7 +142,7 @@ TEST_F(UnitTestFixture, exists_with_watch_test)
     ASSERT_FALSE(client->exists("/key").get());
 
 
-    if (client->exists("/key", true).get().watch.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+    if (client->exists("/key", true).get().watch.wait_for(std::chrono::seconds(6)) == std::future_status::ready)
         FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
@@ -234,7 +234,7 @@ TEST_F(UnitTestFixture, get_with_watch_test)
     ASSERT_EQ(client->get("/key").get().value, "newValue");
 
 
-    if (client->get("/key", true).get().watch.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+    if (client->get("/key", true).get().watch.wait_for(std::chrono::seconds(6)) == std::future_status::ready)
         FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
@@ -364,7 +364,7 @@ TEST_F(UnitTestFixture, get_children_with_watch_test)
                               std::vector<std::string>({"/key/child"})));
 
 
-    if (client->get_children("/key", true).get().watch.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+    if (client->get_children("/key", true).get().watch.wait_for(std::chrono::seconds(6)) == std::future_status::ready)
         FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
