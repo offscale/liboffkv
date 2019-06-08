@@ -343,19 +343,34 @@ private:
     static
     std::string key_transformer(const std::string& prefix, const std::vector<Key>& seq)
     {
-        return prefix + static_cast<char>(seq.size()) + seq.rbegin()->get_raw_key();
+        const std::string& key_parent = seq.size() > 1 ? seq[seq.size() - 2].get_raw_key() : "";
+        const std::string key_base = seq.rbegin()->get_raw_key().substr(key_parent.size() + 1);
+        return prefix + key_parent + '/' + static_cast<char>(0) + key_base;
     }
 
     static
-    std::string children_lookup_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    std::string children_key_transformer(const std::string& prefix, const std::vector<Key>& seq,
+                                         bool direct_children_only, bool range_end)
     {
-        return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + '/';
+        char end = direct_children_only ? static_cast<char>(0) : '/';
+        if (range_end)
+            ++end;
+        std::string tail = direct_children_only ? "/" : "";
+        return prefix + seq.rbegin()->get_raw_key() + tail + end;
     }
 
     static
-    std::string children_lookup_end_key_transformer(const std::string& prefix, const std::vector<Key>& seq)
+    Key::Transformer get_children_key_transformer(bool end)
     {
-        return prefix + static_cast<char>(seq.size() + 1) + seq.rbegin()->get_raw_key() + static_cast<char>('/' + 1);
+        using namespace std::placeholders;
+        return std::bind(children_key_transformer, _1, _2, true, end);
+    }
+
+    static
+    Key::Transformer erase_children_key_transformer(bool end)
+    {
+        using namespace std::placeholders;
+        return std::bind(children_key_transformer, _1, _2, false, end);
     }
 
     static
@@ -374,9 +389,10 @@ private:
         return res;
     }
 
-    const std::string detach_prefix_(const std::string& full_path) const
+    const std::string unwrap_key_(const std::string& full_path) const
     {
-        return full_path.substr(prefix_.size() + 1);
+        size_t pos = full_path.rfind('/');
+        return full_path.substr(prefix_.size(), pos + 1 - prefix_.size()) + full_path.substr(pos + 2);
     }
 
     RangeRequest* const add_success_range(TxnRequest& txn) const
@@ -590,10 +606,8 @@ public:
             cmp->set_create_revision(0);
 
             // prepare keys
-            auto key_begin = key;
-            auto key_end = key;
-            key_begin.set_transformer(children_lookup_key_transformer);
-            key_end.set_transformer(children_lookup_end_key_transformer);
+            auto key_begin = key.with_transformer(get_children_key_transformer(false));
+            auto key_end = key.with_transformer(get_children_key_transformer(true));
 
             // on success: get all keys with appropriate prefix
             auto get_request = add_success_range(txn);
@@ -613,7 +627,7 @@ public:
             ChildrenResult result;
             std::set<std::string> raw_keys;
             for (const auto& kv : response.mutable_responses(0)->release_response_range()->kvs()) {
-                result.children.emplace_back(detach_prefix_(kv.key()));
+                result.children.emplace_back(unwrap_key_(kv.key()));
                 raw_keys.emplace(kv.key());
             }
 
@@ -793,19 +807,6 @@ public:
             [this, key = get_path_(key), version] {
                 grpc::ClientContext context;
 
-                auto request = new DeleteRangeRequest();
-                request->set_key(key);
-
-                // prepare keys
-                auto key_begin = key;
-                auto key_end = key;
-                key_begin.set_transformer(children_lookup_key_transformer);
-                key_end.set_transformer(children_lookup_end_key_transformer);
-
-                auto chilren_request = new DeleteRangeRequest();
-                chilren_request->set_key(key_begin);
-                chilren_request->set_range_end(key_end);
-
                 TxnRequest txn;
 
                 if (version > 0) {
@@ -824,8 +825,20 @@ public:
                     cmp->set_create_revision(0);
                 }
 
+
+                auto request = new DeleteRangeRequest();
+                request->set_key(key);
+
                 auto requestOp = txn.add_success();
                 requestOp->set_allocated_request_delete_range(request);
+
+                // prepare keys
+                auto key_begin = key.with_transformer(erase_children_key_transformer(false));
+                auto key_end = key.with_transformer(erase_children_key_transformer(true));
+
+                auto chilren_request = new DeleteRangeRequest();
+                chilren_request->set_key(key_begin);
+                chilren_request->set_range_end(key_end);
 
                 requestOp = txn.add_success();
                 requestOp->set_allocated_request_delete_range(chilren_request);
@@ -842,7 +855,7 @@ public:
                 if (!status.ok())
                     throw ServiceException(status.error_message());
 
-                if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()->kvs_size())
+                if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()->count())
                     throw NoEntry{};
             });
     }
@@ -926,8 +939,8 @@ public:
 
                             break;
                         }
-                        // default:
-                        //     __builtin_unreachable();
+                            // default:
+                            //     __builtin_unreachable();
                     }
                 }
 
@@ -950,7 +963,8 @@ public:
                         ++i;
                     } else {
                         result.push_back(SetResult{static_cast<uint64_t>(
-                                                       response.mutable_responses(set_indices[j])->release_response_range()
+                                                       response.mutable_responses(
+                                                               set_indices[j])->release_response_range()
                                                            ->kvs(0).version())});
                         ++j;
                     }
@@ -960,7 +974,8 @@ public:
 
                 while (j < set_indices.size())
                     result.push_back(SetResult{static_cast<uint64_t>(
-                                                   response.mutable_responses(set_indices[j++])->release_response_range()
+                                                   response.mutable_responses(
+                                                           set_indices[j++])->release_response_range()
                                                        ->kvs(0).version())});
 
                 return result;

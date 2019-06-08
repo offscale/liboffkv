@@ -8,6 +8,8 @@
 
 namespace detail {
 
+constexpr uint32_t MAX_KEY_DEPTH = 255;
+
 static inline
 bool is_ascii(unsigned char ch)
 {
@@ -103,6 +105,13 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
 
         it = ++end;
     }
+
+    if (ans.size() > detail::MAX_KEY_DEPTH) {
+        std::ostringstream err_info;
+        err_info << "key depth larger than " << detail::MAX_KEY_DEPTH << " is not allowed now"; 
+        throw InvalidKey(err_info.str());
+    }
+        
 
     return ans;
 }
@@ -214,5 +223,11 @@ public:
     {
         transformer_ = transformer;
         transformed_key_ = "";
+    }
+
+    const Key with_transformer(const Transformer& transformer) const {
+        Key res = *this;
+        res.set_transformer(transformer);
+        return res;
     }
 };
