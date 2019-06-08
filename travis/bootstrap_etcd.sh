@@ -6,7 +6,7 @@ curl -L https://github.com/etcd-io/etcd/releases/download/v3.3.13/etcd-v3.3.13-$
 
 mkdir -p "$HOME/etcd"
 if [[ "$EXT" == "tar.gz" ]]; then
-	tar xzvf "$HOME"/etcd.${EXT} -C "$HOME/etcd" --strip-components=1
+	tar xzf "$HOME"/etcd.${EXT} -C "$HOME/etcd" --strip-components=1
 elif [[ "$EXT" == "zip" ]]; then
 	unzip "$HOME"/etcd.${EXT} -d "$HOME/etcd"
 	f=("$HOME/etcd"/*) && mv "$HOME/etcd"/*/* "$HOME/etcd" && rmdir "${f[@]}"
