@@ -321,6 +321,148 @@ public:
     }
 };
 
+
+class ETCDTransactionBuilder {
+private:
+    using TxnRequest = etcdserverpb::TxnRequest;
+    using Compare = etcdserverpb::Compare;
+    using RequestOp = etcdserverpb::RequestOp;
+    using PutRequest = etcdserverpb::PutRequest;
+    using RangeRequest = etcdserverpb::RangeRequest;
+    using DeleteRangeRequest = etcdserverpb::DeleteRangeRequest;
+
+    TxnRequest txn_;
+
+
+    Compare* make_compare_(const std::string& key, etcdserverpb::Compare_CompareTarget target,
+                                                   etcdserverpb::Compare_CompareResult result)
+    {
+        auto cmp = txn_.add_compare();
+        cmp->set_key(key);
+        cmp->set_target(target);
+        cmp->set_result(result);
+
+        return cmp;
+    }
+
+    enum {
+        UNDEFINED,
+        SUCCESS,
+        FAILURE,
+    } status_;
+
+public:
+    ETCDTransactionBuilder()
+    {}
+
+    ~ETCDTransactionBuilder()
+    {}
+
+
+    TxnRequest& get_transaction()
+    {
+        return txn_;
+    }
+
+    ETCDTransactionBuilder& add_check_exists(const std::string& key)
+    {
+        if (key.size()) {
+            auto cmp = make_compare_(key, Compare::CREATE, Compare::GREATER);
+            cmp->set_create_revision(0);
+        }
+
+        return *this;
+    }
+
+    ETCDTransactionBuilder& add_check_not_exists(const std::string& key)
+    {
+        auto cmp = make_compare_(key, Compare::CREATE, Compare::EQUAL);
+        cmp->set_create_revision(0);
+        return *this;
+    }
+
+    ETCDTransactionBuilder& add_version_compare(const std::string& key, int64_t version)
+    {
+        auto cmp = make_compare_(key, Compare::VERSION, Compare::EQUAL);
+        cmp->set_version(version);
+        return *this;
+    }
+
+    ETCDTransactionBuilder& add_lease_compare(const std::string& key, int64_t lease)
+    {
+        auto cmp = make_compare_(key, Compare::LEASE, Compare::EQUAL);
+        cmp->set_lease(lease);
+        return *this;
+    }
+
+    ETCDTransactionBuilder& on_success()
+    {
+        status_ = SUCCESS;
+        return *this;
+    }
+
+    ETCDTransactionBuilder& on_failure()
+    {
+        status_ = FAILURE;
+        return *this;
+    }
+
+    ETCDTransactionBuilder& add_put_request(const std::string& key, const std::string& value,
+                                            int64_t lease = 0, bool ignore_lease = false)
+    {
+        if (status_ == UNDEFINED)
+            throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
+                                     "(use on_success() or on_failure())");
+        auto request = new PutRequest();
+        request->set_key(key);
+        request->set_value(value);
+        request->set_lease(lease);
+        request->set_ignore_lease(ignore_lease);
+
+        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+        requestOp->set_allocated_request_put(request);
+
+        return *this;
+    }
+
+    ETCDTransactionBuilder& add_range_request(const std::string& key, bool keys_only = false,
+                                              int64_t limit = 1, const std::string& range_end = {})
+    {
+        if (status_ == UNDEFINED)
+            throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
+                                     "(use on_success() or on_failure())");
+        auto request = new RangeRequest();
+        request->set_key(key);
+        request->set_limit(limit);
+        request->set_keys_only(keys_only);
+
+        if (range_end.size())
+            request->set_range_end(range_end);
+
+        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+        requestOp->set_allocated_request_range(request);
+
+        return *this;
+    }
+
+    ETCDTransactionBuilder& add_delete_range_request(const std::string& key, const std::string& range_end = {})
+    {
+        if (status_ == UNDEFINED)
+            throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
+                                     "(use on_success() or on_failure())");
+        auto request = new DeleteRangeRequest();
+        request->set_key(key);
+
+        if (range_end.size())
+            request->set_range_end(range_end);
+
+        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+        requestOp->set_allocated_request_delete_range(request);
+
+        return *this;
+    }
+};
+
 } // namespace helper
 
 
@@ -328,19 +470,14 @@ class ETCDClient : public Client {
 private:
     using KV = etcdserverpb::KV;
 
-    using PutRequest = etcdserverpb::PutRequest;
-    using PutResponse = etcdserverpb::PutResponse;
     using RangeRequest = etcdserverpb::RangeRequest;
     using RangeResponse = etcdserverpb::RangeResponse;
-    using DeleteRangeRequest = etcdserverpb::DeleteRangeRequest;
-    using DeleteRangeResponse = etcdserverpb::DeleteRangeResponse;
     using TxnRequest = etcdserverpb::TxnRequest;
     using TxnResponse = etcdserverpb::TxnResponse;
-    using Compare = etcdserverpb::Compare;
-    using RequestOp = etcdserverpb::RequestOp;
 
     using Key = key::Key;
     using ETCDHelper = helper::ETCDHelper;
+    using ETCDTransactionBuilder = helper::ETCDTransactionBuilder;
 
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<KV::Stub> stub_;
@@ -403,76 +540,15 @@ private:
         return full_path.substr(prefix_.size(), pos + 1 - prefix_.size()) + full_path.substr(pos + 2);
     }
 
-    RangeRequest* const add_success_range(TxnRequest& txn) const
+    TxnResponse commit_(grpc::ClientContext& context, const TxnRequest& txn)
     {
-        auto* rq = new RangeRequest();
-        auto op = txn.add_success();
-        op->set_allocated_request_range(rq);
-        return rq;
-    }
+        TxnResponse response;
 
-    RangeRequest* const add_failure_range(TxnRequest& txn) const
-    {
-        auto* rq = new RangeRequest();
-        auto op = txn.add_failure();
-        op->set_allocated_request_range(rq);
-        return rq;
-    }
+        auto status = stub_->Txn(&context, txn, &response);
+        if (!status.ok())
+            throw ServiceException(status.error_message());
 
-    const TxnRequest build_txn_check_parent(const Key& key) const
-    {
-        auto entries = key.get_sequence();
-        TxnRequest txn;
-
-        if (entries.size() >= 2) {
-            auto cmp = txn.add_compare();
-            cmp->set_key(entries[entries.size() - 2]);
-            cmp->set_target(Compare::CREATE);
-            cmp->set_result(Compare::GREATER);
-            cmp->set_create_revision(0);
-        }
-
-        return txn;
-    }
-
-    const TxnRequest build_set_operation(const Key& key, const std::string& value, bool expect_lease_exists)
-    {
-        TxnRequest txn = build_txn_check_parent(key);
-
-        if (!expect_lease_exists) {
-            auto cmp_no_lease = txn.add_compare();
-            cmp_no_lease->set_key(key);
-            cmp_no_lease->set_target(Compare::LEASE);
-            cmp_no_lease->set_result(Compare::EQUAL);
-            cmp_no_lease->set_lease(0);
-        }
-
-        // on success: put value and get new version
-        // put request
-        auto request = new PutRequest();
-        request->set_key(key);
-        request->set_value(value);
-        request->set_ignore_lease(expect_lease_exists);
-
-        auto requestOp_put = txn.add_success();
-        requestOp_put->set_allocated_request_put(request);
-
-        // range request after put to get key's version
-        auto* get_key = add_success_range(txn);
-        get_key->set_key(key);
-        get_key->set_limit(1);
-        get_key->set_keys_only(true);
-
-        auto entries = key.get_sequence();
-        if (entries.size() >= 2) {
-            // range request to recognize failure reason
-            auto* get_parent = add_failure_range(txn);
-            get_parent->set_key(entries[entries.size() - 2]);
-            get_parent->set_limit(1);
-            get_parent->set_keys_only(true);
-        }
-
-        return txn;
+        return response;
     }
 
 public:
@@ -503,41 +579,19 @@ public:
         return thread_pool_->async(
             [this, key = get_path_(key), value, leased]() -> CreateResult {
                 grpc::ClientContext context;
+                ETCDTransactionBuilder tb;
 
-                TxnRequest txn = build_txn_check_parent(key);
-
-                // check that entry to be created does not exist
-                auto cmp = txn.add_compare();
-                cmp->set_key(key);
-                cmp->set_target(Compare::CREATE);
-                cmp->set_result(Compare::EQUAL);
-                cmp->set_create_revision(0);
+                tb.add_check_exists(key.get_parent())
+                    .add_check_not_exists(key);
 
                 // on success: put value
                 // put request
-                auto request = new PutRequest();
-                request->set_key(key);
-                request->set_value(value);
-                if (leased) {
-                    request->set_lease(helper_.get_lease());
-                } else {
-                    request->set_lease(0);
-                }
-
-                auto requestOp_put = txn.add_success();
-                requestOp_put->set_allocated_request_put(request);
+                tb.on_success().add_put_request(key, value, leased ? helper_.get_lease() : 0);
 
                 // on failure: get request to determine the kind of error
-                auto get_request_failure = add_failure_range(txn);
-                get_request_failure->set_key(key);
-                get_request_failure->set_limit(1);
-                get_request_failure->set_keys_only(true);
+                tb.on_failure().add_range_request(key, true);
 
-                TxnResponse response;
-
-                auto status = stub_->Txn(&context, txn, &response);
-                if (!status.ok())
-                    throw ServiceException(status.error_message());
+                TxnResponse response = commit_(context, tb.get_transaction());
 
                 if (!response.succeeded()) {
                     if (response.mutable_responses(0)->release_response_range()->kvs_size()) {
@@ -604,31 +658,17 @@ public:
         return thread_pool_->async([this, key = get_path_(key), watch]() -> ChildrenResult {
             grpc::ClientContext context;
 
-            TxnRequest txn;
-
-            // check that parent exists
-            auto cmp = txn.add_compare();
-            cmp->set_key(key);
-            cmp->set_target(Compare::CREATE);
-            cmp->set_result(Compare::GREATER);
-            cmp->set_create_revision(0);
+            ETCDTransactionBuilder tb;
+            tb.add_check_exists(key.get_parent());
 
             // prepare keys
             auto key_begin = key.with_transformer(get_children_key_transformer(false));
             auto key_end = key.with_transformer(get_children_key_transformer(true));
 
             // on success: get all keys with appropriate prefix
-            auto get_request = add_success_range(txn);
-            get_request->set_key(key_begin);
-            get_request->set_range_end(key_end);
-            get_request->set_keys_only(true);
+            tb.on_success().add_range_request(key_begin, true, 0, key_end);
 
-            TxnResponse response;
-
-            auto status = stub_->Txn(&context, txn, &response);
-            if (!status.ok())
-                throw ServiceException(status.error_message());
-
+            TxnResponse response = commit_(context, tb.get_transaction());
             if (!response.succeeded())
                 throw NoEntry{};
 
@@ -670,19 +710,28 @@ public:
     {
         return thread_pool_->async(
             [this, key = get_path_(key), value]() -> SetResult {
-                TxnResponse response;
                 bool expect_lease = true;
 
                 while (true) {
                     expect_lease = !expect_lease;
 
                     grpc::ClientContext context;
-                    TxnRequest txn = build_set_operation(key, value, expect_lease);
+                    ETCDTransactionBuilder tb;
 
-                    auto status = stub_->Txn(&context, txn, &response);
-                    if (!status.ok())
-                        throw ServiceException(status.error_message());
+                    auto parent = key.get_parent();
 
+                    tb.add_check_exists(parent);
+                    if (!expect_lease)
+                        tb.add_lease_compare(key, 0);
+
+                    // on success: put value and get new version
+                    tb.on_success().add_put_request(key, value, 0, expect_lease)
+                                   .add_range_request(key, true);
+
+                    // on failure: range request to recognize failure reason
+                    tb.on_failure().add_range_request(parent, true);
+
+                    TxnResponse response = commit_(context, tb.get_transaction());
                     if (!response.succeeded()) {
                         auto& responses = *response.mutable_responses();
                         if (!responses.empty() && !responses[0].release_response_range()->kvs_size())
@@ -715,43 +764,18 @@ public:
                 auto entries = key.get_sequence();
                 grpc::ClientContext context;
 
-                TxnRequest txn;
+                ETCDTransactionBuilder tb;
 
-                // check that versions are equal
-                auto cmp = txn.add_compare();
-                cmp->set_key(key);
-                cmp->set_target(Compare::VERSION);
-                cmp->set_result(Compare::EQUAL);
-                cmp->set_version(version);
+                tb.add_version_compare(key, version);
 
                 // on success: put new value, get new version
-                // put request
-                auto request = new PutRequest();
-                request->set_key(key);
-                request->set_value(value);
-                request->set_ignore_lease(true);
-
-                auto requestOp_put = txn.add_success();
-                requestOp_put->set_allocated_request_put(request);
-
-                // range request after put to get key's version
-                auto get_request = add_success_range(txn);
-                get_request->set_key(key);
-                get_request->set_limit(1);
-                get_request->set_keys_only(true);
+                tb.on_success().add_put_request(key, value, 0, true)
+                               .add_range_request(key, true);
 
                 // on fail: check if the given key exists
-                auto get_request_failure = add_failure_range(txn);
-                get_request_failure->set_key(key);
-                get_request_failure->set_limit(1);
-                get_request_failure->set_keys_only(true);
+                tb.on_failure().add_range_request(key, true);
 
-                TxnResponse response;
-
-                auto status = stub_->Txn(&context, txn, &response);
-                if (!status.ok())
-                    throw ServiceException(status.error_message());
-
+                TxnResponse response = commit_(context, tb.get_transaction());
                 if (!response.succeeded()) {
                     auto failure_response = response.mutable_responses(0)->release_response_range();
 
@@ -816,55 +840,28 @@ public:
         return thread_pool_->async(
             [this, key = get_path_(key), version] {
                 grpc::ClientContext context;
-
-                TxnRequest txn;
+                ETCDTransactionBuilder tb;
 
                 if (version > 0) {
                     // check if versions are equal
-                    auto cmp = txn.add_compare();
-                    cmp->set_key(key);
-                    cmp->set_target(Compare::VERSION);
-                    cmp->set_result(Compare::EQUAL);
-                    cmp->set_version(version);
+                    tb.add_version_compare(key, version);
                 } else {
                     // check if key exists
-                    auto cmp = txn.add_compare();
-                    cmp->set_key(key);
-                    cmp->set_target(Compare::CREATE);
-                    cmp->set_result(Compare::GREATER);
-                    cmp->set_create_revision(0);
+                    tb.add_check_exists(key);
                 }
 
 
-                auto request = new DeleteRangeRequest();
-                request->set_key(key);
-
-                auto requestOp = txn.add_success();
-                requestOp->set_allocated_request_delete_range(request);
-
-                // prepare keys
+                // prepare keys for erasing children
                 auto key_begin = key.with_transformer(erase_children_key_transformer(false));
                 auto key_end = key.with_transformer(erase_children_key_transformer(true));
 
-                auto chilren_request = new DeleteRangeRequest();
-                chilren_request->set_key(key_begin);
-                chilren_request->set_range_end(key_end);
-
-                requestOp = txn.add_success();
-                requestOp->set_allocated_request_delete_range(chilren_request);
+                tb.on_success().add_delete_range_request(key)
+                               .add_delete_range_request(key_begin, key_end);
 
                 // on failure: check if key exists
-                auto get_request_failure = add_failure_range(txn);
-                get_request_failure->set_key(key);
-                get_request_failure->set_limit(1);
-                get_request_failure->set_keys_only(true);
+                tb.on_failure().add_range_request(key, true);
 
-                TxnResponse response;
-
-                auto status = stub_->Txn(&context, txn, &response);
-                if (!status.ok())
-                    throw ServiceException(status.error_message());
-
+                TxnResponse response = commit_(context, tb.get_transaction());
                 if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()->count())
                     throw NoEntry{};
             });
@@ -880,49 +877,21 @@ public:
                 std::vector<int> set_indices, create_indices;
                 int _i = 0;
 
-                TxnRequest txn;
+                ETCDTransactionBuilder tb;
 
-                for (const auto& check : transaction.checks()) {
-                    auto cmp = txn.add_compare();
-                    cmp->set_key(get_path_(check.key));
-                    cmp->set_target(Compare::VERSION);
-                    cmp->set_result(Compare::EQUAL);
-                    cmp->set_version(check.version);
-                }
+                for (const auto& check : transaction.checks())
+                    tb.add_version_compare(check.key, check.version);
 
                 for (const auto& op_ptr : transaction.operations()) {
                     switch (op_ptr->type) {
                         case op::op_type::CREATE: {
                             auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
                             auto key = get_path_(create_op_ptr->key);
-                            auto parent = key.get_parent();
 
-                            if (parent.size()) {
-                                auto cmp = txn.add_compare();
-                                cmp->set_key(parent);
-                                cmp->set_target(Compare::CREATE);
-                                cmp->set_result(Compare::GREATER);
-                                cmp->set_create_revision(0);
-                            }
-
-                            auto cmp = txn.add_compare();
-                            cmp->set_key(key);
-                            cmp->set_target(Compare::CREATE);
-                            cmp->set_result(Compare::EQUAL);
-                            cmp->set_create_revision(0);
-
-                            auto request = new PutRequest();
-                            request->set_key(key);
-                            request->set_value(create_op_ptr->value);
-
-//                            if (create_op_ptr->leased) {
-//                                request->set_lease(helper_.get_lease());
-//                            } else {
-//                                request->set_lease(0);
-//                            }
-
-                            auto requestOP = txn.add_success();
-                            requestOP->set_allocated_request_put(request);
+                            tb.add_check_exists(key.get_parent())
+                              .add_check_not_exists(key)
+                              .on_success().add_put_request(key, create_op_ptr->value,
+                                                            create_op_ptr->leased ? helper_.get_lease() : 0);
 
                             create_indices.push_back(_i++);
                             break;
@@ -930,29 +899,10 @@ public:
                         case op::op_type::SET: {
                             auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
                             auto key = get_path_(set_op_ptr->key);
-                            auto parent = key.get_parent();
 
-                            if (parent.size()) {
-                                auto cmp = txn.add_compare();
-                                cmp->set_key(parent);
-                                cmp->set_target(Compare::CREATE);
-                                cmp->set_result(Compare::GREATER);
-                                cmp->set_create_revision(0);
-                            }
-
-                            auto request = new PutRequest();
-                            request->set_key(key);
-                            request->set_value(set_op_ptr->value);
-
-                            auto requestOP = txn.add_success();
-                            requestOP->set_allocated_request_put(request);
-
-                            auto get_request = new RangeRequest();
-                            get_request->set_key(key);
-                            get_request->set_limit(1);
-
-                            auto get_requestOP = txn.add_success();
-                            get_requestOP->set_allocated_request_range(get_request);
+                            tb.add_check_exists(key.get_parent())
+                              .on_success().add_put_request(key, set_op_ptr->value)
+                                           .add_range_request(key);
 
                             set_indices.push_back(_i + 1);
 
@@ -964,32 +914,19 @@ public:
                             auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
                             auto key = get_path_(erase_op_ptr->key);
 
-                            auto cmp = txn.add_compare();
-                            cmp->set_key(key);
-                            cmp->set_target(Compare::CREATE);
-                            cmp->set_result(Compare::GREATER);
-                            cmp->set_create_revision(0);
-
-                            auto request = new DeleteRangeRequest();
-                            request->set_key(key);
-
-                            auto requestOP = txn.add_success();
-                            requestOP->set_allocated_request_delete_range(request);
+                            tb.add_check_exists(key)
+                              .on_success().add_delete_range_request(key);
 
                             ++_i;
 
                             break;
                         }
-                            // default:
-                            //     __builtin_unreachable();
+                        default:
+                            __builtin_unreachable();
                     }
                 }
 
-                TxnResponse response;
-
-                auto status = stub_->Txn(&context, txn, &response);
-                if (!status.ok())
-                    throw ServiceException(status.error_message());
+                TxnResponse response = commit_(context, tb.get_transaction());
 
                 if (!response.succeeded())
                     // TODO

@@ -179,7 +179,7 @@ void test_time_machine()
 void test_path_parse()
 {
     std::string path = "/foo/bar/bax/kek";
-    auto parsed = get_entry_sequence(path);
+    auto parsed = key::get_entry_sequence(path);
     for (const auto& key : parsed)
         std::cout << "<" << key << ">" << " ";
 }

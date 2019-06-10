@@ -62,9 +62,9 @@ struct Check {
 };
 
 
-std::shared_ptr<op::Create> create(const std::string& key, const std::string& value)
+std::shared_ptr<op::Create> create(const std::string& key, const std::string& value, bool leased = false)
 {
-    return std::make_shared<op::Create>(key, value);
+    return std::make_shared<op::Create>(key, value, leased);
 }
 
 std::shared_ptr<op::Set> set(const std::string& key, const std::string& value)
