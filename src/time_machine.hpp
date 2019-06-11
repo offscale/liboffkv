@@ -109,7 +109,7 @@ template <template <class> class Promise = std::promise,
 class ThreadPool {
 public:
     explicit ThreadPool(size_t number_of_threads = 1,
-                        size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 15)
+                        size_t objects_per_thread = 5, unsigned long long wait_for_object_ms = 3)
         : objects_per_thread_(objects_per_thread), wait_for_object_ms_(wait_for_object_ms)
     {
         for (size_t i = 0; i < number_of_threads; ++i)
