@@ -2,64 +2,10 @@
 // Created by alloky on 20.05.19.
 //
 
-#include <iostream>
-
-#include <gtest/gtest.h>
-
-#include "client.hpp"
-#include "key.hpp"
-#include "operation.hpp"
-#include "time_machine.hpp"
-#include "util.hpp"
+#include "test_client_fixture.hpp"
 
 
-using namespace liboffkv;
-
-
-class UnitTestFixture : public ::testing::Test {
-public:
-    static
-    void SetUpTestCase()
-    {
-        timeMachine = std::make_shared<time_machine::ThreadPool<>>();
-        std::string prefix;
-
-        std::string server_addr = SERVICE_ADDRESS;
-        std::cout << "\n\n ----------------------------------------------------- \n" << std::endl;
-        std::cout << "  Using server address : " << server_addr << std::endl;
-        std::cout << "\n ----------------------------------------------------- \n\n" << std::endl;
-        client = connect(server_addr, "/unitTests", timeMachine);
-    }
-
-    static
-    void TearDownTestCase()
-    {}
-
-    void SetUp()
-    {}
-
-    void TearDown()
-    {
-        for (const auto& key : usedKeys) {
-            try {
-                client->erase(key).get();
-            } catch (NoEntry& exc) {}
-        }
-        usedKeys.clear();
-    }
-
-    static std::shared_ptr<time_machine::ThreadPool<>> timeMachine;
-    static std::unique_ptr<Client> client;
-    static std::set<std::string> usedKeys;
-};
-
-
-std::shared_ptr<time_machine::ThreadPool<>> UnitTestFixture::timeMachine;
-std::unique_ptr<Client> UnitTestFixture::client;
-std::set<std::string> UnitTestFixture::usedKeys;
-
-
-TEST_F(UnitTestFixture, create_test)
+TEST_F(ClientFixture, create_test)
 {
     try {
         client->erase("/key").get();
@@ -67,16 +13,16 @@ TEST_F(UnitTestFixture, create_test)
 
 
     ASSERT_NO_THROW(client->create("/key", "value").get());
-    ASSERT_THROW(client->create("/key", "value").get(), EntryExists);
+    ASSERT_THROW(client->create("/key", "value").get(), liboffkv::EntryExists);
 
-    ASSERT_THROW(client->create("/key/child/grandchild", "value").get(), NoEntry);
+    ASSERT_THROW(client->create("/key/child/grandchild", "value").get(), liboffkv::NoEntry);
     ASSERT_NO_THROW(client->create("/key/child", "value").get());
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UnitTestFixture, exists_test)
+TEST_F(ClientFixture, exists_test)
 {
     try {
         client->erase("/key").get();
@@ -97,14 +43,14 @@ TEST_F(UnitTestFixture, exists_test)
 }
 
 
-TEST_F(UnitTestFixture, erase_test)
+TEST_F(ClientFixture, erase_test)
 {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
 
-    ASSERT_THROW(client->erase("/key").get(), NoEntry);
+    ASSERT_THROW(client->erase("/key").get(), liboffkv::NoEntry);
 
     client->create("/key", "value").get();
     client->create("/key/child", "value").get();
@@ -126,7 +72,7 @@ TEST_F(UnitTestFixture, erase_test)
 }
 
 
-TEST_F(UnitTestFixture, exists_with_watch_test)
+TEST_F(ClientFixture, exists_with_watch_test)
 {
     try {
         client->erase("/key").get();
@@ -134,25 +80,29 @@ TEST_F(UnitTestFixture, exists_with_watch_test)
 
     client->create("/key", "value").get();
 
+    std::mutex my_lock;
+    my_lock.lock();
+
+    std::thread([this, &my_lock]() mutable {
+        std::lock_guard<std::mutex> lock_guard(my_lock);
+        client->erase("/key").get();
+    }).detach();
+
     auto result = client->exists("/key", true).get();
+    my_lock.unlock();
+
 
     ASSERT_TRUE(result);
 
-
-    client->erase("/key").get();
     result.watch.get();
     ASSERT_FALSE(client->exists("/key").get());
-
-
-    if (client->exists("/key", true).get().watch.wait_for(std::chrono::seconds(6)) == std::future_status::ready)
-        FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
 }
 
 
 // TODO. Current version definitele won't work
-//TEST_F(UnitTestFixture, create_with_lease_test)
+//TEST_F(ClientFixture, create_with_lease_test)
 //{
 //    try {
 //        client->erase("/key").get();
@@ -174,17 +124,17 @@ TEST_F(UnitTestFixture, exists_with_watch_test)
 //}
 
 
-TEST_F(UnitTestFixture, get_test)
+TEST_F(ClientFixture, get_test)
 {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
-    ASSERT_THROW(client->get("/key").get(), NoEntry);
+    ASSERT_THROW(client->get("/key").get(), liboffkv::NoEntry);
 
     uint64_t initialVersion = client->create("/key", "value").get().version;
 
-    GetResult result;
+    liboffkv::GetResult result;
     ASSERT_NO_THROW({ result = client->get("/key").get(); });
 
     ASSERT_EQ(result.value, "value");
@@ -194,7 +144,7 @@ TEST_F(UnitTestFixture, get_test)
 }
 
 
-TEST_F(UnitTestFixture, set_test)
+TEST_F(ClientFixture, set_test)
 {
     try {
         client->erase("/key").get();
@@ -210,7 +160,7 @@ TEST_F(UnitTestFixture, set_test)
     ASSERT_EQ(result.version, version);
 
 
-    ASSERT_THROW(client->set("/key/child/grandchild", "value").get(), NoEntry);
+    ASSERT_THROW(client->set("/key/child/grandchild", "value").get(), liboffkv::NoEntry);
     ASSERT_NO_THROW(client->set("/key/child", "value").get());
 
     ASSERT_EQ(client->get("/key/child").get().value, "value");
@@ -219,7 +169,7 @@ TEST_F(UnitTestFixture, set_test)
 }
 
 
-TEST_F(UnitTestFixture, get_with_watch_test)
+TEST_F(ClientFixture, get_with_watch_test)
 {
     try {
         client->erase("/key").get();
@@ -227,34 +177,39 @@ TEST_F(UnitTestFixture, get_with_watch_test)
 
     client->create("/key", "value").get();
 
+    std::mutex my_lock;
+    my_lock.lock();
+
+    std::thread([this, &my_lock]() mutable {
+        std::lock_guard<std::mutex> lock_guard(my_lock);
+        client->set("/key", "newValue").get();
+    }).detach();
+
     auto result = client->get("/key", true).get();
+    my_lock.unlock();
+
 
     ASSERT_EQ(result.value, "value");
 
-    client->set("/key", "newValue").get();
     result.watch.get();
     ASSERT_EQ(client->get("/key").get().value, "newValue");
-
-
-    if (client->get("/key", true).get().watch.wait_for(std::chrono::seconds(6)) == std::future_status::ready)
-        FAIL() << "Expected watch.get() not to finish if no changes committed";
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UnitTestFixture, cas_test)
+TEST_F(ClientFixture, cas_test)
 {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
-    ASSERT_THROW(client->cas("/key", "value", 42u).get(), NoEntry);
+    ASSERT_THROW(client->cas("/key", "value", 42u).get(), liboffkv::NoEntry);
 
     auto version = client->create("/key", "value").get().version;
 
-    CASResult cas_result;
-    GetResult get_result;
+    liboffkv::CASResult cas_result;
+    liboffkv::GetResult get_result;
 
     ASSERT_NO_THROW({ cas_result = client->cas("/key", "new_value", version + 1u).get(); });
 
@@ -281,14 +236,14 @@ TEST_F(UnitTestFixture, cas_test)
 }
 
 
-TEST_F(UnitTestFixture, cas_zero_version_test)
+TEST_F(ClientFixture, cas_zero_version_test)
 {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
-    CASResult cas_result;
-    GetResult get_result;
+    liboffkv::CASResult cas_result;
+    liboffkv::GetResult get_result;
 
 
     ASSERT_NO_THROW({ cas_result = client->cas("/key", "value").get(); });
@@ -316,35 +271,35 @@ TEST_F(UnitTestFixture, cas_zero_version_test)
 }
 
 
-TEST_F(UnitTestFixture, get_children_test)
+TEST_F(ClientFixture, get_children_test)
 {
     try {
         client->erase("/key").get();
     } catch (...) {}
 
-    ASSERT_THROW(client->get_children("/key").get(), NoEntry);
+    ASSERT_THROW(client->get_children("/key").get(), liboffkv::NoEntry);
 
     client->create("/key", "/value").get();
     client->create("/key/child", "/value").get();
     client->create("/key/child/grandchild", "/value").get();
     client->create("/key/hackerivan", "/value").get();
 
-    ChildrenResult result;
+    liboffkv::ChildrenResult result;
 
     ASSERT_NO_THROW({ result = client->get_children("/key").get(); });
 
-    ASSERT_TRUE(util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"})));
+    ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/hackerivan"})));
 
 
     ASSERT_NO_THROW({ result = client->get_children("/key/child").get(); });
-    ASSERT_TRUE(util::equal_as_sets(result.children, std::vector<std::string>({"/key/child/grandchild"})));
+    ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child/grandchild"})));
 
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UnitTestFixture, get_children_with_watch_test)
+TEST_F(ClientFixture, get_children_with_watch_test)
 {
     try {
         client->erase("/key").get();
@@ -355,32 +310,35 @@ TEST_F(UnitTestFixture, get_children_with_watch_test)
     client->create("/key/child/grandchild", "value").get();
     client->create("/key/dimak24", "value").get();
 
+    std::mutex my_lock;
+    my_lock.lock();
+
+    std::thread([this, &my_lock]() mutable {
+        std::lock_guard<std::mutex> lock_guard(my_lock);
+        client->erase("/key/dimak24").get();
+    }).detach();
+
     auto result = client->get_children("/key", true).get();
+    my_lock.unlock();
 
-    ASSERT_TRUE(util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
 
-    client->erase("/key/dimak24").get();
+    ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
+
     result.watch.get();
-
-    ASSERT_TRUE(util::equal_as_sets(client->get_children("/key").get().children,
-                              std::vector<std::string>({"/key/child"})));
-
-
-    if (client->get_children("/key", true).get().watch.wait_for(std::chrono::seconds(6)) == std::future_status::ready)
-        FAIL() << "Expected watch.get() not to finish if no changes committed";
+    ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child"})));
 
     usedKeys.insert("/key");
 }
 
 
-TEST_F(UnitTestFixture, commit_test)
+TEST_F(ClientFixture, commit_test)
 {
     try {
-        client->erase("/key").get();
+        client->erase("/key");
     } catch (...) {}
 
     try {
-        client->erase("/foo").get();
+        client->erase("/foo");
     } catch (...) {}
 
 
@@ -393,21 +351,21 @@ TEST_F(UnitTestFixture, commit_test)
         client->commit(
             {
                 {
-                    op::Check("/key", key_version),
-                    op::Check("/foo", foo_version + 1u),
-                    op::Check("/foo/bar", bar_version),
+                    liboffkv::op::Check("/key", key_version),
+                    liboffkv::op::Check("/foo", foo_version + 1u),
+                    liboffkv::op::Check("/foo/bar", bar_version),
                 },
                 {
-                    op::create("/key/child", "value"),
-                    op::set("/key", "new_value"),
-                    op::erase("/foo"),
+                    liboffkv::op::create("/key/child", "value"),
+                    liboffkv::op::set("/key", "new_value"),
+                    liboffkv::op::erase("/foo"),
                 }
             }
         ).get();
 
         FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
-    } catch (TransactionFailed& e) {
-//        ASSERT_EQ(e.failed_operation_index(), 1);
+    } catch (liboffkv::TransactionFailed& e) {
+        ASSERT_EQ(e.failed_operation_index(), 1);
     } catch (...) {
         FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
     }
@@ -422,21 +380,21 @@ TEST_F(UnitTestFixture, commit_test)
         client->commit(
             {
                 {
-                    op::Check("/key", key_version),
-                    op::Check("/foo", foo_version),
-                    op::Check("/foo/bar", bar_version),
+                    liboffkv::op::Check("/key", key_version),
+                    liboffkv::op::Check("/foo", foo_version),
+                    liboffkv::op::Check("/foo/bar", bar_version),
                 },
                 {
-                    op::create("/key/child", "value"),
-                    op::set("/key/subkey/hackerivan", "new_value"),
-                    op::erase("/foo"),
+                    liboffkv::op::create("/key/child", "value"),
+                    liboffkv::op::set("/key/hackerivan", "new_value"),
+                    liboffkv::op::erase("/foo"),
                 }
             }
         ).get();
 
         FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
-    } catch (TransactionFailed& e) {
-//        ASSERT_EQ(e.failed_operation_index(), 5);
+    } catch (liboffkv::TransactionFailed& e) {
+        ASSERT_EQ(e.failed_operation_index(), 5);
     } catch (...) {
         FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
     }
@@ -446,20 +404,20 @@ TEST_F(UnitTestFixture, commit_test)
 
 
     // everything is ok
-    TransactionResult result;
+    liboffkv::TransactionResult result;
 
     ASSERT_NO_THROW({
         result = client->commit(
             {
                 {
-                    op::Check("/key", key_version),
-                    op::Check("/foo", foo_version),
-                    op::Check("/foo/bar", bar_version),
+                    liboffkv::op::Check("/key", key_version),
+                    liboffkv::op::Check("/foo", foo_version),
+                    liboffkv::op::Check("/foo/bar", bar_version),
                 },
                 {
-                    op::create("/key/child", "value"),
-                    op::set("/key", "new_value"),
-                    op::erase("/foo"),
+                    liboffkv::op::create("/key/child", "value"),
+                    liboffkv::op::set("/key", "new_value"),
+                    liboffkv::op::erase("/foo"),
                 }
             }
         ).get();
