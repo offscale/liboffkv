@@ -17,6 +17,7 @@ matrix:
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
         - SYSTEM_TRIPLET=linux
         - PREFERED_ARCHIVE_EXTENSION=tar.gz
+        - LIBOFFKV_CMAKE_FLAGS=""
       addons:
         apt:
           sources:
@@ -27,10 +28,13 @@ matrix:
     - os: osx
       osx_image: xcode10.2
       env:
-        - MATRIX_EVAL="brew install gcc@7 && CC=gcc-7 && CXX=g++-7"
+        - MATRIX_EVAL="brew install gcc@7"
+        - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
+        - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
         - SYSTEM_TRIPLET=darwin
         - PREFERED_ARCHIVE_EXTENSION=zip
+        - LIBOFFKV_CMAKE_FLAGS=""
       sudo: true
     # - os: windows
     #   env:
@@ -41,19 +45,24 @@ matrix:
 
 before_install:
   - eval "${MATRIX_EVAL}"
+  - eval "$OSX_ENABLE_GCC"
 
 before_script:
   - chmod ug+x $TRAVIS_BUILD_DIR/travis/*.sh
   - $TRAVIS_BUILD_DIR/travis/prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
   - cd "$HOME/vcpkg"
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then CC=clang && CXX=clang++; fi
-  - ./vcpkg upgrade --no-dry-run
-  - ./vcpkg install ppconsul etcdpp zkpp gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - travis_wait 30 ./vcpkg upgrade --no-dry-run
+  - eval "$OSX_ENABLE_CLANG"
+  - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - travis_wait 35 ./vcpkg install etcdpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - rm -rf buildtrees
 
 script:
   - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$TRAVIS_BUILD_DIR/cmake-build-debug"
-  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ..
+  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ${LIBOFFKV_CMAKE_FLAGS} ..
   - cmake --build .
   - $TRAVIS_BUILD_DIR/travis/bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
   - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
