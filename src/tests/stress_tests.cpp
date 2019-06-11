@@ -31,16 +31,23 @@ unsigned long long str2ull(std::string& s){
 
 void increaser(std::vector<std::string> keys, int n_inserts, boost::barrier& start_barier, int thread_id){
 
-    std::uniform_int_distribution<int> dice_distribution(0, keys.size());
+    std::uniform_int_distribution<int> dice_distribution(0, keys.size() - 1);
     std::mt19937 random_number_engine(thread_id); // pseudorandom number generator
     auto index_roller = [&dice_distribution, &random_number_engine]() {
         return dice_distribution(random_number_engine);
+    };
+
+    std::mt19937_64 time_eng{std::random_device{}()};  // or seed however you want
+    std::uniform_int_distribution<> time_dist{10, 100};
+    auto time_roller = [&time_dist, &time_eng]() {
+        return time_dist(time_eng);
     };
 
     SingleClientConnection cn;
     start_barier.wait();
 
     for(int i = 0; i < n_inserts; ++i){
+        std::this_thread::sleep_for(std::chrono::milliseconds{time_roller()});
         // choose rand key
         int index = index_roller();
         if(!cn.client->exists(keys[index]).get().exists){
@@ -64,29 +71,35 @@ void increaser(std::vector<std::string> keys, int n_inserts, boost::barrier& sta
             auto casResult = cn.client->cas(keys[index], newVal, oldVersion).get();
             success = casResult.success;
         }
-        RAW_LOG(INFO, "%d %s", index, newVal.c_str());
+        LOG(INFO) << "w " << thread_id << " " << index << " " << newVal.c_str();
     }
 
-    cn.client = std::move(cn.client);
 }
 
 void reader(std::vector<std::string> keys, int n_reads, boost::barrier& start_barier, int thread_id){
-    std::uniform_int_distribution<int> dice_distribution(0, keys.size());
+    std::uniform_int_distribution<int> dice_distribution(0, keys.size() - 1);
     std::mt19937 random_number_engine(thread_id); // pseudorandom number generator
     auto index_roller = [&dice_distribution, &random_number_engine]() {
         return dice_distribution(random_number_engine);
+    };
+
+    std::mt19937_64 time_eng{std::random_device{}()};  // or seed however you want
+    std::uniform_int_distribution<> time_dist{10, 100};
+    auto time_roller = [&time_dist, &time_eng]() {
+        return time_dist(time_eng);
     };
 
     SingleClientConnection cn;
     start_barier.wait();
     for(int i = 0; i < n_reads; ++i){
         // choose rand key
+        std::this_thread::sleep_for(std::chrono::milliseconds{time_roller()});
         int index = index_roller();
         try {
             auto getResult = cn.client->get(keys[index]).get();
             auto val = getResult.value;
             auto llval = str2ull(val);
-            RAW_LOG(INFO, "%d %llu", index, llval);
+            LOG(INFO) << "r " << thread_id << " " << index << " " << llval;
         } catch (liboffkv::NoEntry& e){}
     }
 
@@ -97,12 +110,12 @@ TEST(stress_test, increase_read_test)
 {
 
     const int n = 10,
-              n_incs = 10,
+              n_incs = 100,
               n_readers = 4,
               n_writers = 4;
 
-    google::SetLogDestination(0, "/tmp/liboffkv_increase_read_info.log");
-    google::InitGoogleLogging("myprog");
+    google::SetLogDestination(google::INFO, "/tmp/liboffkv/increase_read_stress_test");
+    google::InitGoogleLogging("liboffkv");
 
     SingleClientConnection cn;
 
