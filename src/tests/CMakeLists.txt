@@ -33,9 +33,13 @@ foreach(service_addr ${SERVICE_TEST_ADDRESSES})
             FILES unite_tests.cpp
             COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\""
     )
-    create_test(
-            NAME ${service_name}_stress
-            FILES stress_tests.cpp
-            COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\""
-    )
+
+    if(BUILD_STRESS_TESTS)
+        create_test(
+                NAME ${service_name}_stress
+                FILES stress_tests.cpp
+                COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\""
+        )
+    endif()
+
 endforeach()

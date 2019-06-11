@@ -7,6 +7,7 @@ option(ENABLE_ZK "Build with ZooKeeper support" ON)
 option(ENABLE_ETCD "Build with etcd support" ON)
 option(ENABLE_CONSUL "Build with Consul support" ON)
 option(BUILD_TESTS "Build library tests" OFF)
+option(BUILD_STRESS_TESTS "Build library tests" OFF)
 
 configure_file(lib/version.h.in generated/version.h @ONLY)
 configure_file(lib/config.h.in generated/config.h @ONLY)

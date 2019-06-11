@@ -10,7 +10,10 @@
 #include <boost/thread.hpp>
 #include <boost/thread/barrier.hpp>
 
+#include <random>
+
 #include "single_client_connection.hpp"
+
 
 std::string strinc(std::string& old){
     size_t len = 0;
@@ -26,18 +29,25 @@ unsigned long long str2ull(std::string& s){
     return llval;
 }
 
-void increaser(std::vector<std::string> keys, int n_inserts, boost::barrier& start_barier){
+void increaser(std::vector<std::string> keys, int n_inserts, boost::barrier& start_barier, int thread_id){
+
+    std::uniform_int_distribution<int> dice_distribution(0, keys.size());
+    std::mt19937 random_number_engine(thread_id); // pseudorandom number generator
+    auto index_roller = [&dice_distribution, &random_number_engine]() {
+        return dice_distribution(random_number_engine);
+    };
+
     SingleClientConnection cn;
-    std::cout << "inc here" << std::endl;
     start_barier.wait();
 
     for(int i = 0; i < n_inserts; ++i){
         // choose rand key
-        int index = rand() % keys.size();
-        if(cn.client->exists(keys[index]).get().exists){
+        int index = index_roller();
+        if(!cn.client->exists(keys[index]).get().exists){
             try {
-                cn.client->create(keys[index], "1");
-//                RAW_LOG(INFO, "%d %d", index, 1);
+//                std::cout << keys[index] << " \n";
+                cn.client->create(keys[index], "10");
+                RAW_LOG(INFO, "%d %d", index, 10);
                 continue;
             } catch (liboffkv::NoEntry& e) { };
         }
@@ -50,26 +60,34 @@ void increaser(std::vector<std::string> keys, int n_inserts, boost::barrier& sta
             auto oldVersion = getResult.version;
             // inc string
             newVal = strinc(oldVal);
+//            std::cout << oldVal << " : " << newVal << " \n";
             auto casResult = cn.client->cas(keys[index], newVal, oldVersion).get();
             success = casResult.success;
         }
-//        RAW_LOG(INFO, "%d %s", index, newVal.c_str());
+        RAW_LOG(INFO, "%d %s", index, newVal.c_str());
     }
 
     cn.client = std::move(cn.client);
 }
 
-void reader(std::vector<std::string> keys, int n_reads, boost::barrier& start_barier){
+void reader(std::vector<std::string> keys, int n_reads, boost::barrier& start_barier, int thread_id){
+    std::uniform_int_distribution<int> dice_distribution(0, keys.size());
+    std::mt19937 random_number_engine(thread_id); // pseudorandom number generator
+    auto index_roller = [&dice_distribution, &random_number_engine]() {
+        return dice_distribution(random_number_engine);
+    };
+
     SingleClientConnection cn;
-    std::cout << "inc here" << std::endl;
     start_barier.wait();
     for(int i = 0; i < n_reads; ++i){
         // choose rand key
-        int index = rand() % keys.size();
-        auto getResult = cn.client->get(keys[index]).get();
-        auto val = getResult.value;
-        auto llval = str2ull(val);
-//        RAW_LOG(INFO, "%d %llu", index, llval);
+        int index = index_roller();
+        try {
+            auto getResult = cn.client->get(keys[index]).get();
+            auto val = getResult.value;
+            auto llval = str2ull(val);
+            RAW_LOG(INFO, "%d %llu", index, llval);
+        } catch (liboffkv::NoEntry& e){}
     }
 
 }
@@ -79,11 +97,12 @@ TEST(stress_test, increase_read_test)
 {
 
     const int n = 10,
-              n_incs = 1e3,
+              n_incs = 10,
               n_readers = 4,
               n_writers = 4;
 
-//    google::InitGoogleLogging("increase_read_test_log.txt");
+    google::SetLogDestination(0, "/tmp/liboffkv_increase_read_info.log");
+    google::InitGoogleLogging("myprog");
 
     SingleClientConnection cn;
 
@@ -101,9 +120,9 @@ TEST(stress_test, increase_read_test)
 
     std::vector<std::string> keys(n);
 
-    for(int i = 1; i < keys.size(); ++i){
-        keys[i] = basic_path + std::to_string(i);
-        std::cout << keys[i] << std::endl;
+    for(int i = 0; i < keys.size(); ++i){
+        keys[i] = basic_path + std::to_string(i+1);
+//        std::cout << keys[i] << std::endl;
     }
 
     boost::barrier bar(n_readers + n_writers);
@@ -112,13 +131,11 @@ TEST(stress_test, increase_read_test)
 
 
     for(int i = 0; i < n_writers; ++i) {
-        all[i] = boost::thread(boost::bind(&increaser, keys, n_incs, boost::ref(bar)));
-        all[i].detach();
+        all[i] = boost::thread(boost::bind(&increaser, keys, n_incs, boost::ref(bar), i));
     }
 
     for(int i = n_writers; i < n_writers + n_readers; ++i) {
-        all[i] = boost::thread(boost::bind(&reader, keys, n_incs, boost::ref(bar)));
-        all[i].detach();
+        all[i] = boost::thread(boost::bind(&reader, keys, n_incs, boost::ref(bar), i));
     }
 
     for(auto & thr : all){
