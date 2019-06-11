@@ -21,7 +21,7 @@ target_include_directories(liboffkv INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/genera
 
 set(SERVICE_TEST_ADDRESSES)
 
-if (${ENABLE_CONSUL})
+if (ENABLE_CONSUL)
     find_package(ppconsul REQUIRED)
 
     if (WIN32)
@@ -32,7 +32,7 @@ if (${ENABLE_CONSUL})
     list(APPEND SERVICE_TEST_ADDRESSES "consul://localhost:8500")
 endif()
 
-if (${ENABLE_ZK})
+if (ENABLE_ZK)
     find_package(zkpp REQUIRED)
 
     target_link_libraries(liboffkv INTERFACE zkpp)
@@ -40,7 +40,7 @@ if (${ENABLE_ZK})
     list(APPEND SERVICE_TEST_ADDRESSES "zk://localhost:2181")
 endif()
 
-if (${ENABLE_ETCD})
+if (ENABLE_ETCD)
     find_package(etcdpp REQUIRED)
     find_package(gRPC CONFIG REQUIRED)
 
@@ -51,14 +51,14 @@ if (${ENABLE_ETCD})
 endif()
 
 
-if (${BUILD_TESTS})
+if (BUILD_TESTS)
     # google tests
     enable_testing()
-    add_subdirectory(src/tests)
+    add_subdirectory(tests)
 endif()
 
-add_executable(test_lib src/test.cpp)
-target_link_libraries(test_lib liboffkv)
+#add_executable(test_lib src/test.cpp)
+#target_link_libraries(test_lib liboffkv)
 
 #add_executable(playground src/playground.cpp)
 #target_link_libraries(playground zkpp)
