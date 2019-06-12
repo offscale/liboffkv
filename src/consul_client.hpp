@@ -272,12 +272,19 @@ public:
         return this->thread_pool_->async(
             [this, key = get_path_(key), version] {
                 std::unique_lock lock(lock_);
+
+                std::vector<TxnOperation> ops{
+                    txn_ops::Get{key},
+                };
+                if (version) {
+                    ops.push_back(txn_ops::CompareErase{key, static_cast<uint64_t>(version)});
+                } else {
+                    ops.push_back(txn_ops::Erase{key});
+                    ops.push_back(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
+                }
+
                 try {
-                    kv_.commit({
-                        txn_ops::Get{key},
-                        version ? TxnOperation{txn_ops::CompareErase{key, static_cast<uint64_t>(version)}}
-                                : TxnOperation{txn_ops::EraseAll{key}},
-                    });
+                    kv_.commit(ops);
                 } catch (TxnAborted& e) {
                     const auto index = static_cast<size_t>(e.errors().front().opIndex);
                     if (index == 0)
@@ -343,7 +350,8 @@ public:
                         auto key = get_path_(op_ptr->key);
 
                         push_op(txn_ops::Get{key}, support_indices);
-                        push_op_noresult(txn_ops::EraseAll{key});
+                        push_op_noresult(txn_ops::Erase{key});
+                        push_op_noresult(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
 
                         break;
                     }

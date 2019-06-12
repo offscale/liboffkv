@@ -101,7 +101,7 @@ TEST_F(ClientFixture, exists_with_watch_test)
 }
 
 
-// TODO. Current version definitele won't work
+// TODO. Current version definitely won't work
 //TEST_F(ClientFixture, create_with_lease_test)
 //{
 //    try {
@@ -433,4 +433,14 @@ TEST_F(ClientFixture, commit_test)
 
     usedKeys.insert("/key");
     usedKeys.insert("/foo");
+}
+
+TEST_F(ClientFixture, erase_prefix_test)
+{
+    ASSERT_NO_THROW(client->create("/ichi",      "one").get());
+    ASSERT_NO_THROW(client->create("/ichinichi", "two").get());
+
+    ASSERT_NO_THROW(client->erase("/ichi").get());
+
+    ASSERT_TRUE(static_cast<bool>(client->exists("/ichinichi").get()));
 }
