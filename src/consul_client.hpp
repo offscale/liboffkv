@@ -3,6 +3,7 @@
 #include <mutex>
 #include "ppconsul/consul.h"
 #include "ppconsul/kv.h"
+#include "ppconsul/sessions.h"
 
 #include "client_interface.hpp"
 #include "key.hpp"
@@ -16,15 +17,19 @@ private:
 
     static constexpr auto TTL = std::chrono::seconds(10);
 
-    using Consul = ppconsul::Consul;
+    static constexpr auto CONSISTENCY = ppconsul::Consistency::Consistent;
+
     using Kv = ppconsul::kv::Kv;
-    using TxnRequest = ppconsul::kv::TxnRequest;
-    using TxnError = ppconsul::kv::TxnError;
+    using TxnOperation = ppconsul::kv::TxnOperation;
+    using TxnAborted = ppconsul::kv::TxnAborted;
+    using Consul = ppconsul::Consul;
+    using Sessions = ppconsul::sessions::Sessions;
 
     using Key = key::Key;
 
     Consul client_;
-    std::unique_ptr<Kv> kv_;
+    Kv kv_;
+    Sessions sessions_;
 
     std::string prefix_;
 
@@ -54,15 +59,16 @@ private:
     {
         return std::async(std::launch::async, [this, key, old_version] {
             std::unique_lock lock(lock_);
-            kv_->item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+            kv_.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
     };
 
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(std::move(time_machine)),
-          client_(Consul(address)),
-          kv_(std::make_unique<Kv>(client_, ppconsul::kw::consistency = ppconsul::Consistency::Consistent)),
+          client_(address),
+          kv_(client_, ppconsul::kw::consistency = CONSISTENCY),
+          sessions_(client_, ppconsul::kw::consistency = CONSISTENCY),
           prefix_(prefix)
     {}
 
@@ -78,6 +84,8 @@ public:
 
     std::future<CreateResult> create(const std::string& key, const std::string& value, bool lease = false) override
     {
+        using namespace ppconsul::kv;
+
         return this->thread_pool_->async(
             [this, key = get_path_(key), value, lease]() -> CreateResult {
                 std::unique_lock lock(lock_);
@@ -87,11 +95,12 @@ public:
 
                 try {
                     if (lease) {
-                        auto id = kv_->createSession(key, 15, ppconsul::kv::SessionDropBehavior::DELETE, TTL.count());
+                        auto id = sessions_.create(key, std::chrono::seconds{15},
+                                                   ppconsul::sessions::InvalidationBehavior::Delete, TTL);
                         thread_pool_->periodic(
                             [this, id = std::move(id)] {
                                 try {
-                                    kv_->renewSession(id);
+                                    sessions_.renew(id);
                                     return (TTL + std::chrono::seconds(1)) / 2;
                                 } catch (... /* BadStatus& ??*/) {
                                     return std::chrono::seconds::zero();
@@ -99,20 +108,21 @@ public:
                             }, (TTL + std::chrono::seconds(1)) / 2);
                     }
 
-                    std::vector<TxnRequest> requests;
+                    std::vector<TxnOperation> ops;
 
                     if (has_parent)
-                        requests.push_back(TxnRequest::get(parent));
+                        ops.push_back(txn_ops::Get{parent});
 
-                    requests.push_back(TxnRequest::checkNotExists(key));
-                    requests.push_back(TxnRequest::set(key, value));
+                    ops.push_back(txn_ops::CheckNotExists{key});
+                    ops.push_back(txn_ops::Set{key, value});
 
-                    return {kv_->commit(requests).back().modifyIndex};
+                    return {kv_.commit(ops).back().modifyIndex};
 
-                } catch (TxnError& e) {
-                    if (has_parent && (e.index() == 0))
+                } catch (TxnAborted& e) {
+                    const auto index = e.errors().front().opIndex;
+                    if (has_parent && index == 0)
                         throw NoEntry{};
-                    if (e.index() == static_cast<uint64_t>(has_parent))
+                    if (index == static_cast<decltype(index)>(has_parent))
                         throw EntryExists{};
                     throw;
                 } liboffkv_catch
@@ -125,7 +135,7 @@ public:
             [this, key = get_path_(key), watch]() -> ExistsResult {
                 std::unique_lock lock(lock_);
                 try {
-                    auto item = kv_->item(ppconsul::withHeaders, key);
+                    auto item = kv_.item(ppconsul::withHeaders, key);
 
                     std::future<void> watch_future;
                     if (watch)
@@ -141,15 +151,16 @@ public:
 
     std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
     {
+        using namespace ppconsul::kv;
+
         return this->thread_pool_->async(
             [this, key = get_path_(key), watch]() -> ChildrenResult {
                 std::unique_lock lock(lock_);
                 try {
-
-                    auto res = kv_->commit({
-                                               TxnRequest::getAll(key),
-                                               TxnRequest::get(key)
-                                           });
+                    auto res = kv_.commit({
+                        txn_ops::GetAll{key},
+                        txn_ops::Get{key},
+                    });
 
                     std::future<void> watch_future;
                     if (watch)
@@ -158,7 +169,7 @@ public:
                     return {
                         util::map_vector(
                             util::filter_vector(
-                                std::vector<ppconsul::kv::KeyValue>(res.begin(), --res.end()),
+                                std::vector<KeyValue>(res.begin(), --res.end()),
                                 [key = static_cast<std::string>(key)](const auto& key_value) {
                                     return key_value.key != key &&
                                            key_value.key.substr(key.size() + 1).find('/') == std::string::npos;
@@ -168,7 +179,7 @@ public:
                             }),
                         watch_future.share()
                     };
-                } catch (TxnError& e) {
+                } catch (TxnAborted& e) {
                     throw NoEntry{};
                 } liboffkv_catch
             });
@@ -176,23 +187,25 @@ public:
 
     std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
+        using namespace ppconsul::kv;
+
         return thread_pool_->async(
             [this, key = get_path_(key), value]() -> SetResult {
                 std::unique_lock lock(lock_);
                 try {
                     auto parent = key.get_parent();
 
-                    std::vector<TxnRequest> requests;
+                    std::vector<TxnOperation> ops;
 
                     if (!parent.empty())
-                        requests.push_back(TxnRequest::get(parent));
+                        ops.push_back(txn_ops::Get{parent});
 
-                    requests.push_back(TxnRequest::set(key, value));
+                    ops.push_back(txn_ops::Set{key, value});
 
-                    auto result = kv_->commit(requests);
+                    auto result = kv_.commit(ops);
                     return {result.back().modifyIndex};
 
-                } catch (TxnError&) {
+                } catch (TxnAborted&) {
                     throw NoEntry{};
                 } liboffkv_catch
             });
@@ -200,16 +213,16 @@ public:
 
     std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
     {
+        using namespace ppconsul::kv;
+
         return this->thread_pool_->async(
             [this, key = get_path_(key), value, version]() -> CASResult {
                 if (!version)
                     return thread_pool_->then(
                         create(key.get_raw_key(), value),
                         [](std::future<CreateResult>&& result) -> CASResult {
-                            CreateResult unwrapped;
-
                             try {
-                                unwrapped = util::call_get(std::move(result));
+                                CreateResult unwrapped = util::call_get(std::move(result));
                                 return {unwrapped.version, true};
                             } catch (EntryExists&) {
                                 return {0, false};
@@ -218,15 +231,15 @@ public:
 
                 try {
                     std::unique_lock lock(lock_);
-                    auto result = kv_->commit({
-                                                  TxnRequest::get(key),
-                                                  TxnRequest::compareSet(key, static_cast<uint64_t>(version),
-                                                                         value)
-                                              });
-
+                    auto result = kv_.commit({
+                        txn_ops::Get{key},
+                        txn_ops::CompareSet{key, static_cast<uint64_t>(version), value},
+                    });
                     return {result.back().modifyIndex, true};
-                } catch (TxnError& e) {
-                    if (e.index() == 0)
+
+                } catch (TxnAborted& e) {
+                    const auto index = e.errors().front().opIndex;
+                    if (index == 0)
                         throw NoEntry{};
                     return {0, false};
                 } liboffkv_catch
@@ -239,7 +252,7 @@ public:
             [this, key = get_path_(key), watch]() -> GetResult {
                 std::unique_lock lock(lock_);
                 try {
-                    auto item = kv_->item(ppconsul::withHeaders, key);
+                    auto item = kv_.item(ppconsul::withHeaders, key);
                     if (!item.data().valid())
                         throw NoEntry{};
 
@@ -254,20 +267,20 @@ public:
 
     std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
+        using namespace ppconsul::kv;
+
         return this->thread_pool_->async(
             [this, key = get_path_(key), version] {
                 std::unique_lock lock(lock_);
                 try {
-                    std::vector<TxnRequest> requests;
-
-                    requests.push_back(TxnRequest::get(key));
-                    requests.push_back(version ? TxnRequest::compareErase(key, static_cast<uint64_t>(version))
-                                               : TxnRequest::eraseAll(key));
-
-                    kv_->commit(requests);
-
-                } catch (TxnError& e) {
-                    if (e.index() == 0)
+                    kv_.commit({
+                        txn_ops::Get{key},
+                        version ? TxnOperation{txn_ops::CompareErase{key, static_cast<uint64_t>(version)}}
+                                : TxnOperation{txn_ops::EraseAll{key}},
+                    });
+                } catch (TxnAborted& e) {
+                    const auto index = e.errors().front().opIndex;
+                    if (index == 0)
                         throw NoEntry{};
                 } liboffkv_catch
             });
@@ -275,13 +288,15 @@ public:
 
     std::future<TransactionResult> commit(const Transaction& transaction) override
     {
+        using namespace ppconsul::kv;
+
         return thread_pool_->async([this, transaction] {
-            std::vector<TxnRequest> requests;
+            std::vector<TxnOperation> ops;
 
             for (const auto& check : transaction.checks())
-                requests.push_back(check.version ? TxnRequest::checkIndex(get_path_(check.key),
-                                                                          static_cast<uint64_t>(check.version))
-                                                 : TxnRequest::get(get_path_(check.key)));
+                ops.push_back(check.version
+                    ? TxnOperation{txn_ops::CheckIndex{get_path_(check.key), static_cast<uint64_t>(check.version)}}
+                    : TxnOperation{txn_ops::Get{get_path_(check.key)}});
 
             std::vector<int> set_indices, create_indices, support_indices;
             int _j = transaction.checks().size();
@@ -295,18 +310,14 @@ public:
                         auto parent = key.get_parent();
 
                         if (parent.size()) {
-                            requests.push_back(TxnRequest::get(parent));
+                            ops.push_back(txn_ops::Get{parent});
                             support_indices.push_back(_j++);
                         }
 
-                        requests.push_back(TxnRequest::checkNotExists(key));
+                        ops.push_back(txn_ops::CheckNotExists{key});
                         support_indices.push_back(_j++);
 
-                        requests.push_back(TxnRequest::set(
-                            key,
-                            create_op_ptr->value
-                        ));
-
+                        ops.push_back(txn_ops::Set{key, create_op_ptr->value});
                         create_indices.push_back(_j++);
 
                         break;
@@ -318,16 +329,13 @@ public:
                         auto parent = key.get_parent();
 
                         if (parent.size()) {
-                            requests.push_back(TxnRequest::get(parent));
+                            ops.push_back(txn_ops::Get{parent});
                             support_indices.push_back(_j++);
                         }
 
-                        requests.push_back(TxnRequest::set(
-                            key,
-                            set_op_ptr->value
-                        ));
-
+                        ops.push_back(txn_ops::Set{key, set_op_ptr->value});
                         set_indices.push_back(_j++);
+
                         break;
                     }
                     case op::op_type::ERASE: {
@@ -335,21 +343,19 @@ public:
 
                         auto key = get_path_(op_ptr->key);
 
-                        requests.push_back(TxnRequest::get(key));
+                        ops.push_back(txn_ops::Get{key});
                         support_indices.push_back(_j++);
 
-                        requests.push_back(TxnRequest::eraseAll(key));
-
+                        ops.push_back(txn_ops::EraseAll{key});
                         ++_j;
+
                         break;
                     }
-                    default:
-                        __builtin_unreachable();
                 }
-            };
+            }
 
             try {
-                auto commit_result = kv_->commit(requests);
+                auto commit_result = kv_.commit(ops);
                 TransactionResult result;
 
                 int i = 0, j = 0;
@@ -369,11 +375,13 @@ public:
                     result.push_back(SetResult{commit_result[set_indices[j++]].modifyIndex});
 
                 return result;
-            } catch (TxnError& e) {
-                auto it = std::upper_bound(support_indices.begin(), support_indices.end(), e.index());
+            } catch (TxnAborted& e) {
+                const auto index = e.errors().front().opIndex;
+
+                auto it = std::upper_bound(support_indices.begin(), support_indices.end(), index);
 
                 throw TransactionFailed{static_cast<size_t>(
-                    e.index() - std::distance(support_indices.begin(), it) + (e.index() == *(it - 1)))};
+                    index - std::distance(support_indices.begin(), it) + (index == *(it - 1)))};
             }
         });
     }

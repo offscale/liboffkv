@@ -2,9 +2,9 @@ include(vcpkg_common_functions)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO shdown/ppconsul
-    REF 3f7b376bf0f1ace8251b2cd82757fbc44f32853f
-    SHA512 be668e30de0d3ea4b7e8223daaacbb5e8e66b8e66b91a99518d3c993ed128aa6dbc4fc20dfc9803e411f2fe04a5bb7c3ba832115da6a67582c4837baba9441e8
+    REPO oliora/ppconsul
+    REF fd3a22eba03a49623832a8f8c990fee499e3f8fb
+    SHA512 098f2fa0fdc3f219f5958d0d5b2a620231e3cd94dc3110cfbedb87e787e8402a7b0294f7ffa4fcb4169b0428b4f65376b621e5840706ff7cc8f02ac7fc1d7757
     HEAD_REF master
     PATCHES "cmake_build.patch"
 )
