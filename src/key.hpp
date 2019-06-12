@@ -181,7 +181,7 @@ public:
         transformed_key_ = "";
     }
 
-    const bool is_prefix_prepended() const
+    bool is_prefix_prepended() const
     {
         return static_cast<bool>(prefix_);
     }

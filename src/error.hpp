@@ -31,7 +31,6 @@
                 throw e;\
             default: \
                 throw e; \
-            /*default: __builtin_unreachable();\*/ \
         }\
     }
 #else

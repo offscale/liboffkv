@@ -6,6 +6,15 @@
 
 #include "error.hpp"
 
+#if __GNUC__ >= 2
+#   define liboffkv_unreachable() __builtin_unreachable()
+#elif _MSC_VER >= 1100
+#   define liboffkv_unreachable() __assume(0)
+#else
+#   include <cstdlib>
+#   define liboffkv_unreachable() std::abort()
+#endif
+
 
 namespace liboffkv { namespace util {
 

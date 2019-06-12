@@ -175,7 +175,7 @@ private:
         thread_pool_->then(write_to_watch_stream_m(req, lock), util::call_get<void>);
     }
 
-    const bool process_watch_response_m(const WatchResponse& response)
+    bool process_watch_response_m(const WatchResponse& response)
     {
         const auto& events = response.events();
 
@@ -921,8 +921,6 @@ public:
 
                             break;
                         }
-                        default:
-                            __builtin_unreachable();
                     }
                 }
 

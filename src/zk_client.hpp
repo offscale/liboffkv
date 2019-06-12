@@ -357,8 +357,6 @@ public:
                     make_recursive_erase_query(trn, static_cast<std::string>(get_path_(erase_op_ptr->key)));
                     break;
                 }
-                default:
-                    __builtin_unreachable();
             }
         };
 
@@ -377,8 +375,7 @@ public:
                         break;
                     case zk::op_type::check:
                     case zk::op_type::erase:
-                    default:
-                        __builtin_unreachable();
+                        liboffkv_unreachable();
                 }
             }
 
