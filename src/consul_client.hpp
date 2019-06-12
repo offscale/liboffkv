@@ -119,10 +119,10 @@ public:
                     return {kv_.commit(ops).back().modifyIndex};
 
                 } catch (TxnAborted& e) {
-                    const auto index = e.errors().front().opIndex;
+                    const auto index = static_cast<size_t>(e.errors().front().opIndex);
                     if (has_parent && index == 0)
                         throw NoEntry{};
-                    if (index == static_cast<decltype(index)>(has_parent))
+                    if (index == static_cast<size_t>(has_parent))
                         throw EntryExists{};
                     throw;
                 } liboffkv_catch
@@ -238,7 +238,7 @@ public:
                     return {result.back().modifyIndex, true};
 
                 } catch (TxnAborted& e) {
-                    const auto index = e.errors().front().opIndex;
+                    const auto index = static_cast<size_t>(e.errors().front().opIndex);
                     if (index == 0)
                         throw NoEntry{};
                     return {0, false};
@@ -279,7 +279,7 @@ public:
                                 : TxnOperation{txn_ops::EraseAll{key}},
                     });
                 } catch (TxnAborted& e) {
-                    const auto index = e.errors().front().opIndex;
+                    const auto index = static_cast<size_t>(e.errors().front().opIndex);
                     if (index == 0)
                         throw NoEntry{};
                 } liboffkv_catch
@@ -298,8 +298,15 @@ public:
                     ? TxnOperation{txn_ops::CheckIndex{get_path_(check.key), static_cast<uint64_t>(check.version)}}
                     : TxnOperation{txn_ops::Get{get_path_(check.key)}});
 
-            std::vector<int> set_indices, create_indices, support_indices;
-            int _j = transaction.checks().size();
+            std::vector<size_t> set_indices, create_indices, support_indices;
+
+            const auto push_op = [&ops](TxnOperation &&op, std::vector<size_t> &indices) {
+                indices.push_back(ops.size());
+                ops.emplace_back(std::move(op));
+            };
+            const auto push_op_noresult = [&ops](TxnOperation &&op) {
+                ops.emplace_back(std::move(op));
+            };
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
@@ -309,16 +316,11 @@ public:
                         auto key = get_path_(create_op_ptr->key);
                         auto parent = key.get_parent();
 
-                        if (parent.size()) {
-                            ops.push_back(txn_ops::Get{parent});
-                            support_indices.push_back(_j++);
-                        }
+                        if (!parent.empty())
+                            push_op(txn_ops::Get{parent}, support_indices);
 
-                        ops.push_back(txn_ops::CheckNotExists{key});
-                        support_indices.push_back(_j++);
-
-                        ops.push_back(txn_ops::Set{key, create_op_ptr->value});
-                        create_indices.push_back(_j++);
+                        push_op(txn_ops::CheckNotExists{key}, support_indices);
+                        push_op(txn_ops::Set{key, create_op_ptr->value}, create_indices);
 
                         break;
                     }
@@ -328,13 +330,10 @@ public:
                         auto key = get_path_(set_op_ptr->key);
                         auto parent = key.get_parent();
 
-                        if (parent.size()) {
-                            ops.push_back(txn_ops::Get{parent});
-                            support_indices.push_back(_j++);
-                        }
+                        if (!parent.empty())
+                            push_op(txn_ops::Get{parent}, support_indices);
 
-                        ops.push_back(txn_ops::Set{key, set_op_ptr->value});
-                        set_indices.push_back(_j++);
+                        push_op(txn_ops::Set{key, set_op_ptr->value}, set_indices);
 
                         break;
                     }
@@ -343,11 +342,8 @@ public:
 
                         auto key = get_path_(op_ptr->key);
 
-                        ops.push_back(txn_ops::Get{key});
-                        support_indices.push_back(_j++);
-
-                        ops.push_back(txn_ops::EraseAll{key});
-                        ++_j;
+                        push_op(txn_ops::Get{key}, support_indices);
+                        push_op_noresult(txn_ops::EraseAll{key});
 
                         break;
                     }
@@ -355,33 +351,42 @@ public:
             }
 
             try {
-                auto commit_result = kv_.commit(ops);
+                const auto commit_result = kv_.commit(ops);
                 TransactionResult result;
 
-                int i = 0, j = 0;
+                size_t i = 0, j = 0;
+
+                const auto push_create_result = [&commit_result, &result, &create_indices, &i]() {
+                    result.push_back(CreateResult{commit_result[create_indices[i]].modifyIndex});
+                    ++i;
+                };
+                const auto push_set_result = [&commit_result, &result, &set_indices, &j]() {
+                    result.push_back(SetResult{commit_result[set_indices[j]].modifyIndex});
+                    ++j;
+                };
+
                 while (i < create_indices.size() && j < set_indices.size())
-                    if (create_indices[i] < set_indices[j]) {
-                        result.push_back(CreateResult{commit_result[create_indices[i]].modifyIndex});
-                        ++i;
-                    } else {
-                        result.push_back(SetResult{commit_result[set_indices[j]].modifyIndex});
-                        ++j;
-                    }
+                    if (create_indices[i] < set_indices[j])
+                        push_create_result();
+                    else
+                        push_set_result();
 
                 while (i < create_indices.size())
-                    result.push_back(CreateResult{commit_result[create_indices[i++]].modifyIndex});
+                    push_create_result();
 
                 while (j < set_indices.size())
-                    result.push_back(SetResult{commit_result[set_indices[j++]].modifyIndex});
+                    push_set_result();
 
                 return result;
+
             } catch (TxnAborted& e) {
-                const auto index = e.errors().front().opIndex;
+                const auto index = static_cast<size_t>(e.errors().front().opIndex);
 
                 auto it = std::upper_bound(support_indices.begin(), support_indices.end(), index);
 
                 throw TransactionFailed{static_cast<size_t>(
-                    index - std::distance(support_indices.begin(), it) + (index == *(it - 1)))};
+                    index - std::distance(support_indices.begin(), it) + (index == *(it - 1))
+                )};
             }
         });
     }
