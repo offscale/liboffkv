@@ -388,13 +388,15 @@ TEST_F(ClientFixture, commit_test)
                     liboffkv::op::create("/key/child", "value"),
                     liboffkv::op::set("/key/hackerivan", "new_value"),
                     liboffkv::op::erase("/foo"),
+                    liboffkv::op::set("/key/child/grandchild/hackerivan", "new_value"),
+                    liboffkv::op::erase("/asfdsfasdfa"),
                 }
             }
         ).get();
 
         FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
     } catch (liboffkv::TransactionFailed& e) {
-        ASSERT_EQ(e.failed_operation_index(), 5);
+        ASSERT_EQ(e.failed_operation_index(), 6);
     } catch (...) {
         FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
     }
