@@ -416,8 +416,11 @@ public:
         auto request = new PutRequest();
         request->set_key(key);
         request->set_value(value);
-        request->set_lease(lease);
-        request->set_ignore_lease(ignore_lease);
+
+        if (ignore_lease)
+            request->set_ignore_lease(true);
+        else
+            request->set_lease(lease);
 
         auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
         requestOp->set_allocated_request_put(request);
@@ -431,16 +434,18 @@ public:
         if (status_ == UNDEFINED)
             throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
                                      "(use on_success() or on_failure())");
-        auto request = new RangeRequest();
-        request->set_key(key);
-        request->set_limit(limit);
-        request->set_keys_only(keys_only);
+        if (key.size()) {
+            auto request = new RangeRequest();
+            request->set_key(key);
+            request->set_limit(limit);
+            request->set_keys_only(keys_only);
 
-        if (range_end.size())
-            request->set_range_end(range_end);
+            if (range_end.size())
+                request->set_range_end(range_end);
 
-        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
-        requestOp->set_allocated_request_range(request);
+            auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+            requestOp->set_allocated_request_range(request);
+        }
 
         return *this;
     }
@@ -582,7 +587,7 @@ public:
                 ETCDTransactionBuilder tb;
 
                 tb.add_check_exists(key.get_parent())
-                    .add_check_not_exists(key);
+                  .add_check_not_exists(key);
 
                 // on success: put value
                 // put request
@@ -659,7 +664,7 @@ public:
             grpc::ClientContext context;
 
             ETCDTransactionBuilder tb;
-            tb.add_check_exists(key.get_parent());
+            tb.add_check_exists(key);
 
             // prepare keys
             auto key_begin = key.with_transformer(get_children_key_transformer(false));
@@ -726,7 +731,7 @@ public:
 
                     // on success: put value and get new version
                     tb.on_success().add_put_request(key, value, 0, expect_lease)
-                                   .add_range_request(key, true);
+                                   .add_range_request(key);
 
                     // on failure: range request to recognize failure reason
                     tb.on_failure().add_range_request(parent, true);
