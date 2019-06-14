@@ -301,13 +301,13 @@ public:
             // This operation corresponds to a check user operation, produces 1 result.
             CHECK,
 
-            // This operation corresponds to a op::op_type::CREATE user operation, produces 1 result.
+            // This operation corresponds to an op::op_type::CREATE user operation, produces 1 result.
             CREATE,
 
-            // This operation corresponds to a op::op_type::SET user operation, produces 1 result.
+            // This operation corresponds to an op::op_type::SET user operation, produces 1 result.
             SET,
 
-            // This operation corresponds to a op::op_type::ERASE user operation, produces no results.
+            // This operation corresponds to an op::op_type::ERASE user operation, produces no results.
             ERASE_NO_RESULT,
 
             // This is an auxiliary operation, produces 1 result.
@@ -316,6 +316,9 @@ public:
             // This is an auxiliary operation, produces no results.
             AUX_NO_RESULT,
         };
+
+        // We assume that each user operation maps to zero or more auxiliary (ResultKind::AUX or ResultKind::AUX_NO_RESULT)
+        // operations, followed by exactly one non-auxiliary one.
 
         return thread_pool_->async([this, transaction] {
             std::unique_lock lock(lock_);
@@ -418,6 +421,7 @@ public:
                     case ResultKind::SET:
                     case ResultKind::ERASE_NO_RESULT:
                         ++ncompleted;
+                        break;
                     case ResultKind::AUX:
                     case ResultKind::AUX_NO_RESULT:
                         break;
