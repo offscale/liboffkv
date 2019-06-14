@@ -443,4 +443,6 @@ TEST_F(ClientFixture, erase_prefix_test)
     ASSERT_NO_THROW(client->erase("/ichi").get());
 
     ASSERT_TRUE(static_cast<bool>(client->exists("/ichinichi").get()));
+
+    usedKeys.insert("/ichinichi");
 }
