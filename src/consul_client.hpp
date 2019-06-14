@@ -119,10 +119,10 @@ public:
                     return {kv_.commit(ops).back().modifyIndex};
 
                 } catch (TxnAborted& e) {
-                    const auto index = static_cast<size_t>(e.errors().front().opIndex);
-                    if (has_parent && index == 0)
+                    const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
+                    if (has_parent && opIndex == 0)
                         throw NoEntry{};
-                    if (index == static_cast<size_t>(has_parent))
+                    if (opIndex == static_cast<size_t>(has_parent))
                         throw EntryExists{};
                     throw;
                 } liboffkv_catch
@@ -238,8 +238,8 @@ public:
                     return {result.back().modifyIndex, true};
 
                 } catch (TxnAborted& e) {
-                    const auto index = static_cast<size_t>(e.errors().front().opIndex);
-                    if (index == 0)
+                    const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
+                    if (opIndex == 0)
                         throw NoEntry{};
                     return {0, false};
                 } liboffkv_catch
@@ -286,8 +286,8 @@ public:
                 try {
                     kv_.commit(ops);
                 } catch (TxnAborted& e) {
-                    const auto index = static_cast<size_t>(e.errors().front().opIndex);
-                    if (index == 0)
+                    const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
+                    if (opIndex == 0)
                         throw NoEntry{};
                 } liboffkv_catch
             });
@@ -297,23 +297,43 @@ public:
     {
         using namespace ppconsul::kv;
 
+        enum class ResultKind {
+            // This operation corresponds to a check user operation, produces 1 result.
+            CHECK,
+
+            // This operation corresponds to a op::op_type::CREATE user operation, produces 1 result.
+            CREATE,
+
+            // This operation corresponds to a op::op_type::SET user operation, produces 1 result.
+            SET,
+
+            // This operation corresponds to a op::op_type::ERASE user operation, produces no results.
+            ERASE_NO_RESULT,
+
+            // This is an auxiliary operation, produces 1 result.
+            AUX,
+
+            // This is an auxiliary operation, produces no results.
+            AUX_NO_RESULT,
+        };
+
         return thread_pool_->async([this, transaction] {
+            std::unique_lock lock(lock_);
+
             std::vector<TxnOperation> ops;
+            std::vector<ResultKind> result_kinds;
+
+            const auto push_op = [&ops, &result_kinds](TxnOperation &&op, ResultKind rk) {
+                ops.emplace_back(std::move(op));
+                result_kinds.push_back(rk);
+            };
 
             for (const auto& check : transaction.checks())
-                ops.push_back(check.version
-                    ? TxnOperation{txn_ops::CheckIndex{get_path_(check.key), static_cast<uint64_t>(check.version)}}
-                    : TxnOperation{txn_ops::Get{get_path_(check.key)}});
-
-            std::vector<size_t> set_indices, create_indices, support_indices;
-
-            const auto push_op = [&ops](TxnOperation &&op, std::vector<size_t> &indices) {
-                indices.push_back(ops.size());
-                ops.emplace_back(std::move(op));
-            };
-            const auto push_op_noresult = [&ops](TxnOperation &&op) {
-                ops.emplace_back(std::move(op));
-            };
+                if (check.version)
+                    push_op(txn_ops::CheckIndex{get_path_(check.key), static_cast<uint64_t>(check.version)},
+                            ResultKind::CHECK);
+                else
+                    push_op(txn_ops::Get{get_path_(check.key)}, ResultKind::CHECK);
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
@@ -324,10 +344,10 @@ public:
                         auto parent = key.get_parent();
 
                         if (!parent.empty())
-                            push_op(txn_ops::Get{parent}, support_indices);
+                            push_op(txn_ops::Get{parent}, ResultKind::AUX);
 
-                        push_op(txn_ops::CheckNotExists{key}, support_indices);
-                        push_op(txn_ops::Set{key, create_op_ptr->value}, create_indices);
+                        push_op(txn_ops::CheckNotExists{key}, ResultKind::AUX_NO_RESULT);
+                        push_op(txn_ops::Set{key, create_op_ptr->value}, ResultKind::CREATE);
 
                         break;
                     }
@@ -338,9 +358,9 @@ public:
                         auto parent = key.get_parent();
 
                         if (!parent.empty())
-                            push_op(txn_ops::Get{parent}, support_indices);
+                            push_op(txn_ops::Get{parent}, ResultKind::AUX);
 
-                        push_op(txn_ops::Set{key, set_op_ptr->value}, set_indices);
+                        push_op(txn_ops::Set{key, set_op_ptr->value}, ResultKind::SET);
 
                         break;
                     }
@@ -349,9 +369,10 @@ public:
 
                         auto key = get_path_(op_ptr->key);
 
-                        push_op(txn_ops::Get{key}, support_indices);
-                        push_op_noresult(txn_ops::Erase{key});
-                        push_op_noresult(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
+                        push_op(txn_ops::Get{key}, ResultKind::AUX);
+                        push_op(txn_ops::Erase{key}, ResultKind::AUX_NO_RESULT);
+                        push_op(txn_ops::EraseAll{static_cast<std::string>(key) + "/"},
+                                ResultKind::ERASE_NO_RESULT);
 
                         break;
                     }
@@ -359,42 +380,51 @@ public:
             }
 
             try {
-                const auto commit_result = kv_.commit(ops);
-                TransactionResult result;
+                const auto results = kv_.commit(ops);
+                TransactionResult answer;
 
-                size_t i = 0, j = 0;
+                size_t result_index = 0;
+                for (ResultKind rk : result_kinds) {
+                    switch (rk) {
+                    case ResultKind::CREATE:
+                        answer.push_back(CreateResult{results[result_index].modifyIndex});
+                        ++result_index;
+                        break;
+                    case ResultKind::SET:
+                        answer.push_back(SetResult{results[result_index].modifyIndex});
+                        ++result_index;
+                        break;
+                    case ResultKind::CHECK:
+                    case ResultKind::AUX:
+                        ++result_index;
+                        break;
+                    case ResultKind::ERASE_NO_RESULT:
+                    case ResultKind::AUX_NO_RESULT:
+                        break;
+                    }
+                }
 
-                const auto push_create_result = [&commit_result, &result, &create_indices, &i]() {
-                    result.push_back(CreateResult{commit_result[create_indices[i]].modifyIndex});
-                    ++i;
-                };
-                const auto push_set_result = [&commit_result, &result, &set_indices, &j]() {
-                    result.push_back(SetResult{commit_result[set_indices[j]].modifyIndex});
-                    ++j;
-                };
-
-                while (i < create_indices.size() && j < set_indices.size())
-                    if (create_indices[i] < set_indices[j])
-                        push_create_result();
-                    else
-                        push_set_result();
-
-                while (i < create_indices.size())
-                    push_create_result();
-
-                while (j < set_indices.size())
-                    push_set_result();
-
-                return result;
+                return answer;
 
             } catch (TxnAborted& e) {
-                const auto index = static_cast<size_t>(e.errors().front().opIndex);
+                const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
 
-                auto it = std::upper_bound(support_indices.begin(), support_indices.end(), index);
+                size_t ncompleted = 0;
 
-                throw TransactionFailed{static_cast<size_t>(
-                    index - std::distance(support_indices.begin(), it) + (index == *(it - 1))
-                )};
+                for (size_t i = 0; i < opIndex; ++i) {
+                    switch (result_kinds[i]) {
+                    case ResultKind::CHECK:
+                    case ResultKind::CREATE:
+                    case ResultKind::SET:
+                    case ResultKind::ERASE_NO_RESULT:
+                        ++ncompleted;
+                    case ResultKind::AUX:
+                    case ResultKind::AUX_NO_RESULT:
+                        break;
+                    }
+                }
+
+                throw TransactionFailed{ncompleted};
             }
         });
     }
