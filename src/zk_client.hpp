@@ -65,7 +65,6 @@ private:
 
     std::future<TransactionResult> commit_impl_(Transaction transaction)
     {
-        using util::ResultKind;
         auto boundaries = std::make_shared<std::vector<size_t>>();
 
         std::future<zk::multi_op> txn = thread_pool_->async(
