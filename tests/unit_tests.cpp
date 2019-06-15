@@ -335,11 +335,11 @@ TEST_F(ClientFixture, get_children_with_watch_test)
 TEST_F(ClientFixture, commit_test)
 {
     try {
-        client->erase("/key");
+        client->erase("/key").get();
     } catch (...) {}
 
     try {
-        client->erase("/foo");
+        client->erase("/foo").get();
     } catch (...) {}
 
 
@@ -367,8 +367,8 @@ TEST_F(ClientFixture, commit_test)
         FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
     } catch (liboffkv::TransactionFailed& e) {
         ASSERT_EQ(e.failed_operation_index(), 1);
-    } catch (...) {
-        FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
+    } catch (std::exception& e) {
+        FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception:\n" << e.what();
     }
 
     ASSERT_FALSE(client->exists("/key/child").get());
@@ -398,8 +398,8 @@ TEST_F(ClientFixture, commit_test)
         FAIL() << "Expected commit to throw TransactionFailed, but it threw nothing";
     } catch (liboffkv::TransactionFailed& e) {
         ASSERT_EQ(e.failed_operation_index(), 6);
-    } catch (...) {
-        FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception";
+    } catch (std::exception& e) {
+        FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception:\n" << e.what();
     }
 
     ASSERT_FALSE(client->exists("/key/child").get());

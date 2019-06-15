@@ -12,6 +12,7 @@
 #include "key.hpp"
 
 
+
 namespace liboffkv {
 
 class ZKClient : public Client {
@@ -177,7 +178,8 @@ public:
                         [path](std::future<zk::set_result>&& result) -> SetResult {
                             try {
                                 return {
-                                    static_cast<uint64_t>(util::call_get(std::move(result)).stat().data_version.value + 1)};
+                                    static_cast<uint64_t>(util::call_get(std::move(result)).stat().data_version.value +
+                                                          1)};
                             } catch (NoEntry&) {
                                 // concurrent remove happened
                                 // but set must not throw NoEntry
@@ -211,8 +213,9 @@ public:
                             [](std::future<zk::get_result>&& result) -> CASResult {
                                 try {
                                     return {
-                                        static_cast<uint64_t>(util::call_get(std::move(result)).stat().data_version.value +
-                                                              1),
+                                        static_cast<uint64_t>(
+                                            util::call_get(std::move(result)).stat().data_version.value +
+                                            1),
                                         false
                                     };
                                 } catch (NoEntry&) {
@@ -326,61 +329,100 @@ public:
         );
     }
 
-    std::future<TransactionResult> commit(const Transaction& transaction)
+    std::future<TransactionResult> commit(const Transaction& transaction) override
     {
-        zk::multi_op trn;
+        using util::ResultKind;
+        auto ops = std::make_shared<std::vector<ResultKind>>();
 
-        for (const auto& check : transaction.checks())
-            trn.push_back(
-                zk::op::check(static_cast<std::string>(get_path_(check.key)),
-                              check.version ? zk::version(check.version - 1) : zk::version::any()));
+        std::future<zk::multi_op> txn = thread_pool_->async([this, transaction, ops_ptr = ops] {
+            zk::multi_op trn;
+            std::vector<ResultKind>& ops = *ops_ptr;
 
-        for (const auto& op_ptr : transaction.operations()) {
-            switch (op_ptr->type) {
-                case op::op_type::CREATE: {
-                    auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
-                    trn.push_back(zk::op::create(
-                        static_cast<std::string>(get_path_(create_op_ptr->key)),
-                        from_string(create_op_ptr->value),
-                        (!create_op_ptr->leased ? zk::create_mode::normal : zk::create_mode::ephemeral)
-                    ));
-                    break;
-                }
-                case op::op_type::SET: {
-                    auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
-                    trn.push_back(zk::op::set(static_cast<std::string>(get_path_(set_op_ptr->key)),
-                                              from_string(set_op_ptr->value)));
-                    break;
-                }
-                case op::op_type::ERASE: {
-                    auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                    make_recursive_erase_query(trn, static_cast<std::string>(get_path_(erase_op_ptr->key)));
-                    break;
-                }
-            }
-        };
-
-        return thread_pool_->then(client_.commit(trn), [](std::future<zk::multi_result>&& multi_res) {
-            TransactionResult result;
-
-            auto multi_res_unwrapped = util::call_get(std::move(multi_res));
-
-            for (const auto& res : multi_res_unwrapped) {
-                switch (res.type()) {
-                    case zk::op_type::set:
-                        result.push_back(SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)});
-                        break;
-                    case zk::op_type::create:
-                        result.push_back(CreateResult{1});
-                        break;
-                    case zk::op_type::check:
-                    case zk::op_type::erase:
-                        liboffkv_unreachable();
-                }
+            for (const auto& check : transaction.checks()) {
+                trn.push_back(
+                    zk::op::check(static_cast<std::string>(get_path_(check.key)),
+                                  check.version ? zk::version(check.version - 1) : zk::version::any()));
+                ops.emplace_back(ResultKind::CHECK);
             }
 
-            return result;
+            for (const auto& op_ptr : transaction.operations()) {
+                switch (op_ptr->type) {
+                    case op::op_type::CREATE: {
+                        auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
+                        trn.push_back(zk::op::create(
+                            get_path_(create_op_ptr->key),
+                            from_string(create_op_ptr->value),
+                            (!create_op_ptr->leased ? zk::create_mode::normal : zk::create_mode::ephemeral)
+                        ));
+                        ops.emplace_back(ResultKind::CREATE);
+                        break;
+                    }
+                    case op::op_type::SET: {
+                        auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
+                        trn.push_back(zk::op::set(static_cast<std::string>(get_path_(set_op_ptr->key)),
+                                                  from_string(set_op_ptr->value)));
+                        ops.emplace_back(ResultKind::SET);
+                        break;
+                    }
+                    case op::op_type::ERASE: {
+                        auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
+
+                        size_t n_before_erase = trn.size();
+                        make_recursive_erase_query(trn, get_path_(erase_op_ptr->key));
+                        size_t n_after_erase = trn.size();
+
+                        for (int i = n_before_erase; i < n_after_erase; ++i) {
+                            if (i == n_after_erase - 1)
+                                ops.emplace_back(ResultKind::ERASE_NO_RESULT);
+                            else
+                                ops.emplace_back(ResultKind::AUX);
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            return trn;
         });
+
+        return thread_pool_->then(
+            thread_pool_->then(
+                std::move(txn),
+                [this](std::future<zk::multi_op>&& txn) {
+                    return client_.commit(txn.get()).get();
+                },
+                true
+            ), [ops_ptr = ops](std::future<zk::multi_result>&& multi_res) {
+                TransactionResult result;
+                const std::vector<ResultKind>& ops = *ops_ptr;
+
+                try {
+                    auto multi_res_unwrapped = util::call_get(std::move(multi_res));
+
+                    for (const auto& res : multi_res_unwrapped) {
+                        switch (res.type()) {
+                            case zk::op_type::set:
+                                result.push_back(
+                                    SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)});
+                                break;
+                            case zk::op_type::create:
+                                result.push_back(CreateResult{1});
+                                break;
+                            case zk::op_type::check:
+                            case zk::op_type::erase:
+                                liboffkv_unreachable();
+                        }
+                    }
+                } catch (zk::error& e) {
+                    if (e.code() == zk::error_code::transaction_failed) {
+                        auto op_index = dynamic_cast<zk::transaction_failed&>(e).failed_op_index();
+                        throw TransactionFailed(util::compute_offkv_operation_index(ops, op_index));
+                    }
+                }
+
+                return result;
+            });
     }
 };
 

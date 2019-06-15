@@ -24,13 +24,11 @@
                 throw ConnectionLoss{};\
             case zk::error_code::no_children_for_ephemerals:\
                 throw NoChildrenForEphemeral{};\
-            case zk::error_code::transaction_failed:\
-                throw TransactionFailed{dynamic_cast<zk::transaction_failed&>(e).failed_op_index()};\
             case zk::error_code::version_mismatch:\
             case zk::error_code::not_empty:\
-                throw e;\
+                std::rethrow_exception(std::current_exception());\
             default: \
-                throw e; \
+                std::rethrow_exception(std::current_exception());\
         }\
     }
 #else

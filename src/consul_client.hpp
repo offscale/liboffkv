@@ -40,7 +40,7 @@ private:
     {
         Key res = key;
         res.set_prefix(prefix_);
-        res.set_transformer([](const std::string &prefix, const std::vector<Key> &seq) {
+        res.set_transformer([](const std::string& prefix, const std::vector<Key>& seq) {
             const std::string result = prefix + seq.rbegin()->get_raw_key();
             if (!result.empty() && result[0] == '/') {
                 return result.substr(1);
@@ -124,10 +124,10 @@ public:
                     return {kv_.commit(ops).back().modifyIndex};
 
                 } catch (TxnAborted& e) {
-                    const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
-                    if (has_parent && opIndex == 0)
+                    const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
+                    if (has_parent && op_index == 0)
                         throw NoEntry{};
-                    if (opIndex == static_cast<size_t>(has_parent))
+                    if (op_index == static_cast<size_t>(has_parent))
                         throw EntryExists{};
                     throw;
                 } liboffkv_catch
@@ -235,14 +235,14 @@ public:
                 try {
                     std::unique_lock lock(lock_);
                     auto result = kv_.commit({
-                        txn_ops::Get{key},
-                        txn_ops::CompareSet{key, static_cast<uint64_t>(version), value},
-                    });
+                                                 txn_ops::Get{key},
+                                                 txn_ops::CompareSet{key, static_cast<uint64_t>(version), value},
+                                             });
                     return {result.back().modifyIndex, true};
 
                 } catch (TxnAborted& e) {
-                    const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
-                    if (opIndex == 0)
+                    const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
+                    if (op_index == 0)
                         throw NoEntry{};
                     return {0, false};
                 } liboffkv_catch
@@ -289,8 +289,8 @@ public:
                 try {
                     kv_.commit(ops);
                 } catch (TxnAborted& e) {
-                    const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
-                    if (opIndex == 0)
+                    const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
+                    if (op_index == 0)
                         throw NoEntry{};
                 } liboffkv_catch
             });
@@ -300,28 +300,7 @@ public:
     {
         using namespace ppconsul::kv;
 
-        enum class ResultKind {
-            // This operation corresponds to a check user operation, produces 1 result.
-            CHECK,
-
-            // This operation corresponds to an op::op_type::CREATE user operation, produces 1 result.
-            CREATE,
-
-            // This operation corresponds to an op::op_type::SET user operation, produces 1 result.
-            SET,
-
-            // This operation corresponds to an op::op_type::ERASE user operation, produces no results.
-            ERASE_NO_RESULT,
-
-            // This is an auxiliary operation, produces 1 result.
-            AUX,
-
-            // This is an auxiliary operation, produces no results.
-            AUX_NO_RESULT,
-        };
-
-        // We assume that each user operation maps to zero or more auxiliary (ResultKind::AUX or ResultKind::AUX_NO_RESULT)
-        // operations, followed by exactly one non-auxiliary one.
+        using util::ResultKind;
 
         return thread_pool_->async([this, transaction] {
             std::unique_lock lock(lock_);
@@ -329,7 +308,7 @@ public:
             std::vector<TxnOperation> ops;
             std::vector<ResultKind> result_kinds;
 
-            const auto push_op = [&ops, &result_kinds](TxnOperation &&op, ResultKind rk) {
+            const auto push_op = [&ops, &result_kinds](TxnOperation&& op, ResultKind rk) {
                 ops.emplace_back(std::move(op));
                 result_kinds.push_back(rk);
             };
@@ -392,46 +371,31 @@ public:
                 size_t result_index = 0;
                 for (ResultKind rk : result_kinds) {
                     switch (rk) {
-                    case ResultKind::CREATE:
-                        answer.push_back(CreateResult{results[result_index].modifyIndex});
-                        ++result_index;
-                        break;
-                    case ResultKind::SET:
-                        answer.push_back(SetResult{results[result_index].modifyIndex});
-                        ++result_index;
-                        break;
-                    case ResultKind::CHECK:
-                    case ResultKind::AUX:
-                        ++result_index;
-                        break;
-                    case ResultKind::ERASE_NO_RESULT:
-                    case ResultKind::AUX_NO_RESULT:
-                        break;
+                        case ResultKind::CREATE:
+                            answer.push_back(CreateResult{results[result_index].modifyIndex});
+                            ++result_index;
+                            break;
+                        case ResultKind::SET:
+                            answer.push_back(SetResult{results[result_index].modifyIndex});
+                            ++result_index;
+                            break;
+                        case ResultKind::CHECK:
+                        case ResultKind::AUX:
+                            ++result_index;
+                            break;
+                        case ResultKind::ERASE_NO_RESULT:
+                        case ResultKind::AUX_NO_RESULT:
+                            break;
                     }
                 }
 
                 return answer;
 
             } catch (TxnAborted& e) {
-                const auto opIndex = static_cast<size_t>(e.errors().front().opIndex);
-
-                size_t ncompleted = 0;
-
-                for (size_t i = 0; i < opIndex; ++i) {
-                    switch (result_kinds[i]) {
-                    case ResultKind::CHECK:
-                    case ResultKind::CREATE:
-                    case ResultKind::SET:
-                    case ResultKind::ERASE_NO_RESULT:
-                        ++ncompleted;
-                        break;
-                    case ResultKind::AUX:
-                    case ResultKind::AUX_NO_RESULT:
-                        break;
-                    }
-                }
-
-                throw TransactionFailed{ncompleted};
+                const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
+                throw TransactionFailed{
+                    util::compute_offkv_operation_index(result_kinds, op_index)
+                };
             }
         });
     }
