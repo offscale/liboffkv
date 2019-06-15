@@ -880,23 +880,36 @@ public:
                 grpc::ClientContext context;
 
                 std::vector<int> set_indices, create_indices;
+                std::vector<std::vector<bool>> expected_existence;
                 int _i = 0;
 
                 ETCDTransactionBuilder tb;
 
-                for (const auto& check : transaction.checks())
-                    tb.add_version_compare(check.key, check.version);
+                for (const auto& check : transaction.checks()) {
+                    auto key = get_path_(check.key);
+                    tb.add_version_compare(key, check.version)
+                      .on_failure().add_range_request(key);
+                }
 
                 for (const auto& op_ptr : transaction.operations()) {
                     switch (op_ptr->type) {
                         case op::op_type::CREATE: {
                             auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
                             auto key = get_path_(create_op_ptr->key);
+                            auto parent = key.get_parent();
+                            expected_existence.emplace_back();
 
-                            tb.add_check_exists(key.get_parent())
+                            tb.add_check_exists(parent)
                               .add_check_not_exists(key)
                               .on_success().add_put_request(key, create_op_ptr->value,
-                                                            create_op_ptr->leased ? helper_.get_lease() : 0);
+                                                            create_op_ptr->leased ? helper_.get_lease() : 0)
+                              .on_failure().add_range_request(key, true);
+
+                            expected_existence.back().push_back(false);
+                            if (parent.size()) {
+                                tb.on_failure().add_range_request(parent, true);
+                                expected_existence.back().push_back(true);
+                            }
 
                             create_indices.push_back(_i++);
                             break;
@@ -904,11 +917,17 @@ public:
                         case op::op_type::SET: {
                             auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
                             auto key = get_path_(set_op_ptr->key);
+                            auto parent = key.get_parent();
+                            expected_existence.emplace_back();
 
-                            tb.add_check_exists(key.get_parent())
+                            tb.add_check_exists(parent)
                               .on_success().add_put_request(key, set_op_ptr->value)
                                            .add_range_request(key);
 
+                            if (parent.size()) {
+                                tb.on_failure().add_range_request(parent, true);
+                                expected_existence.back().push_back(true);
+                            }
                             set_indices.push_back(_i + 1);
 
                             _i += 2;
@@ -918,9 +937,13 @@ public:
                         case op::op_type::ERASE: {
                             auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
                             auto key = get_path_(erase_op_ptr->key);
+                            expected_existence.emplace_back();
 
                             tb.add_check_exists(key)
-                              .on_success().add_delete_range_request(key);
+                              .on_success().add_delete_range_request(key)
+                              .on_failure().add_range_request(key, true);
+
+                            expected_existence.back().push_back(true);
 
                             ++_i;
 
@@ -931,9 +954,27 @@ public:
 
                 TxnResponse response = commit_(context, tb.get_transaction());
 
-                if (!response.succeeded())
-                    // TODO
-                    throw TransactionFailed{0};
+                if (!response.succeeded()) {
+                    auto& responses = *response.mutable_responses();
+
+                    for (size_t i = 0; i < transaction.checks().size(); ++i) {
+                        auto resp_i = responses[i].release_response_range();
+                        if (resp_i->kvs_size() == 0 || transaction.checks()[i].version != resp_i->kvs(0).version())
+                            throw TransactionFailed{i};
+                    }
+
+                    size_t tr_checks_number = transaction.checks().size(), j = 0;
+                    for (size_t i = 0; i < transaction.operations().size(); ++i)
+                        for (bool should_exist : expected_existence[i]) {
+                            if (should_exist ^ static_cast<bool>(responses[j + tr_checks_number]
+                                                                    .release_response_range()->kvs_size()))
+                                throw TransactionFailed{i + tr_checks_number};
+                            ++j;
+                        }
+
+                    //
+                    throw ServiceException{"transaction's failure is not connected with operations logic"};
+                }
 
                 TransactionResult result;
 
