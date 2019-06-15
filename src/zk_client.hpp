@@ -66,18 +66,18 @@ private:
     std::future<TransactionResult> commit_impl_(Transaction transaction)
     {
         using util::ResultKind;
-        auto ops = std::make_shared<std::vector<ResultKind>>();
+        auto boundaries = std::make_shared<std::vector<size_t>>();
 
         std::future<zk::multi_op> txn = thread_pool_->async(
-            [this, transaction = std::move(transaction), ops_ptr = ops] {
+            [this, transaction = std::move(transaction), boundaries_ptr = boundaries] {
                 zk::multi_op trn;
-                std::vector<ResultKind>& ops = *ops_ptr;
+                std::vector<size_t>& boundaries = *boundaries_ptr;
 
                 for (const auto& check : transaction.checks()) {
                     trn.push_back(
                         zk::op::check(static_cast<std::string>(get_path_(check.key)),
                                       check.version ? zk::version(check.version - 1) : zk::version::any()));
-                    ops.emplace_back(ResultKind::CHECK);
+                    boundaries.emplace_back(trn.size() - 1);
                 }
 
                 for (const auto& op_ptr : transaction.operations()) {
@@ -89,33 +89,21 @@ private:
                                 from_string(create_op_ptr->value),
                                 (!create_op_ptr->leased ? zk::create_mode::normal : zk::create_mode::ephemeral)
                             ));
-                            ops.emplace_back(ResultKind::CREATE);
                             break;
                         }
                         case op::op_type::SET: {
                             auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
                             trn.push_back(zk::op::set(static_cast<std::string>(get_path_(set_op_ptr->key)),
                                                       from_string(set_op_ptr->value)));
-                            ops.emplace_back(ResultKind::SET);
                             break;
                         }
                         case op::op_type::ERASE: {
                             auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-
-                            size_t n_before_erase = trn.size();
                             make_recursive_erase_query(trn, get_path_(erase_op_ptr->key));
-                            size_t n_after_erase = trn.size();
-
-                            for (int i = n_before_erase; i < n_after_erase; ++i) {
-                                if (i == n_after_erase - 1)
-                                    ops.emplace_back(ResultKind::ERASE_NO_RESULT);
-                                else
-                                    ops.emplace_back(ResultKind::AUX);
-                            }
-
                             break;
                         }
                     }
+                    boundaries.emplace_back(trn.size() - 1);
                 }
 
                 return trn;
@@ -128,9 +116,8 @@ private:
                     return client_.commit(txn.get()).get();
                 },
                 true
-            ), [ops_ptr = ops](std::future<zk::multi_result>&& multi_res) {
+            ), [boundaries_ptr = boundaries](std::future<zk::multi_result>&& multi_res) {
                 TransactionResult result;
-                const std::vector<ResultKind>& ops = *ops_ptr;
 
                 try {
                     auto multi_res_unwrapped = util::call_get(std::move(multi_res));
@@ -138,8 +125,9 @@ private:
                     for (const auto& res : multi_res_unwrapped) {
                         switch (res.type()) {
                             case zk::op_type::set:
-                                result.push_back(
-                                    SetResult{static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)});
+                                result.push_back(SetResult{
+                                    static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)
+                                });
                                 break;
                             case zk::op_type::create:
                                 result.push_back(CreateResult{1});
@@ -150,10 +138,13 @@ private:
                         }
                     }
                 } catch (zk::transaction_failed& e) {
-                    auto op_index = e.failed_op_index();
-                    if (ops[op_index] == ResultKind::AUX)
+                    const auto op_index = e.failed_op_index();
+
+                    const std::vector<size_t>& boundaries = *boundaries_ptr;
+                    const auto user_op_index = util::user_op_index(boundaries, op_index);
+                    if (boundaries[user_op_index] != op_index)
                         std::rethrow_exception(std::current_exception());
-                    throw TransactionFailed(util::compute_offkv_operation_index(ops, op_index));
+                    throw TransactionFailed{user_op_index};
                 }
 
                 return result;

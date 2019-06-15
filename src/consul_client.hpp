@@ -300,25 +300,32 @@ public:
     {
         using namespace ppconsul::kv;
 
-        using util::ResultKind;
+        enum class ResultKind {
+            CREATE,
+            SET,
+            AUX,
+        };
 
         return thread_pool_->async([this, transaction] {
             std::unique_lock lock(lock_);
 
             std::vector<TxnOperation> ops;
+            std::vector<size_t> boundaries;
             std::vector<ResultKind> result_kinds;
 
-            const auto push_op = [&ops, &result_kinds](TxnOperation&& op, ResultKind rk) {
-                ops.emplace_back(std::move(op));
-                result_kinds.push_back(rk);
-            };
-
-            for (const auto& check : transaction.checks())
+            for (const auto& check : transaction.checks()) {
                 if (check.version)
-                    push_op(txn_ops::CheckIndex{get_path_(check.key), static_cast<uint64_t>(check.version)},
-                            ResultKind::CHECK);
+                    ops.push_back(txn_ops::CheckIndex{
+                        get_path_(check.key),
+                        static_cast<uint64_t>(check.version)
+                    });
                 else
-                    push_op(txn_ops::Get{get_path_(check.key)}, ResultKind::CHECK);
+                    ops.push_back(txn_ops::Get{get_path_(check.key)});
+
+                result_kinds.push_back(ResultKind::AUX);
+
+                boundaries.push_back(ops.size() - 1);
+            }
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
@@ -328,11 +335,16 @@ public:
                         auto key = get_path_(create_op_ptr->key);
                         auto parent = key.get_parent();
 
-                        if (!parent.empty())
-                            push_op(txn_ops::Get{parent}, ResultKind::AUX);
+                        if (!parent.empty()) {
+                            ops.push_back(txn_ops::Get{parent});
+                            result_kinds.push_back(ResultKind::AUX);
+                        }
 
-                        push_op(txn_ops::CheckNotExists{key}, ResultKind::AUX_NO_RESULT);
-                        push_op(txn_ops::Set{key, create_op_ptr->value}, ResultKind::CREATE);
+                        ops.push_back(txn_ops::CheckNotExists{key});
+                        // txn_ops::CheckNotExists does not produce any results
+
+                        ops.push_back(txn_ops::Set{key, create_op_ptr->value});
+                        result_kinds.push_back(ResultKind::CREATE);
 
                         break;
                     }
@@ -341,8 +353,11 @@ public:
 
                         auto key = get_path_(set_op_ptr->key);
 
-                        push_op(txn_ops::Get{key}, ResultKind::AUX);
-                        push_op(txn_ops::Set{key, set_op_ptr->value}, ResultKind::SET);
+                        ops.push_back(txn_ops::Get{key});
+                        result_kinds.push_back(ResultKind::AUX);
+
+                        ops.push_back(txn_ops::Set{key, set_op_ptr->value});
+                        result_kinds.push_back(ResultKind::SET);
 
                         break;
                     }
@@ -351,48 +366,41 @@ public:
 
                         auto key = get_path_(op_ptr->key);
 
-                        push_op(txn_ops::Get{key}, ResultKind::AUX);
-                        push_op(txn_ops::Erase{key}, ResultKind::AUX_NO_RESULT);
-                        push_op(txn_ops::EraseAll{static_cast<std::string>(key) + "/"},
-                                ResultKind::ERASE_NO_RESULT);
+                        ops.push_back(txn_ops::Get{key});
+                        result_kinds.push_back(ResultKind::AUX);
+
+                        ops.push_back(txn_ops::Erase{key});
+                        // txn_ops::Erase does not produce any results
+                        ops.push_back(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
+                        // txn_ops::EraseAll does not produce any results
 
                         break;
                     }
                 }
+
+                boundaries.push_back(ops.size() - 1);
             }
 
             try {
                 const auto results = kv_.commit(ops);
                 TransactionResult answer;
-
-                size_t result_index = 0;
-                for (ResultKind rk : result_kinds) {
-                    switch (rk) {
-                        case ResultKind::CREATE:
-                            answer.push_back(CreateResult{results[result_index].modifyIndex});
-                            ++result_index;
-                            break;
-                        case ResultKind::SET:
-                            answer.push_back(SetResult{results[result_index].modifyIndex});
-                            ++result_index;
-                            break;
-                        case ResultKind::CHECK:
-                        case ResultKind::AUX:
-                            ++result_index;
-                            break;
-                        case ResultKind::ERASE_NO_RESULT:
-                        case ResultKind::AUX_NO_RESULT:
-                            break;
+                for (size_t i = 0; i < results.size(); ++i) {
+                    switch (result_kinds[i]) {
+                    case ResultKind::CREATE:
+                        answer.push_back(CreateResult{results[i].modifyIndex});
+                        break;
+                    case ResultKind::SET:
+                        answer.push_back(SetResult{results[i].modifyIndex});
+                        break;
+                    case ResultKind::AUX:
+                        break;
                     }
                 }
-
                 return answer;
 
             } catch (TxnAborted& e) {
                 const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
-                throw TransactionFailed{
-                    util::compute_offkv_operation_index(result_kinds, op_index)
-                };
+                throw TransactionFailed{util::user_op_index(boundaries, op_index)};
             }
         });
     }
