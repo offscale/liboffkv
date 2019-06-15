@@ -325,7 +325,8 @@ TEST_F(ClientFixture, get_children_with_watch_test)
     ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child", "/key/dimak24"})));
 
     result.watch.get();
-    ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child"})));
+    ASSERT_TRUE(liboffkv::util::equal_as_sets(client->get_children("/key").get().children,
+                                              std::vector<std::string>({"/key/child"})));
 
     usedKeys.insert("/key");
 }
@@ -439,6 +440,10 @@ TEST_F(ClientFixture, commit_test)
 
 TEST_F(ClientFixture, erase_prefix_test)
 {
+    try {
+        client->erase("/ichi").get();
+    } catch (...) {}
+
     ASSERT_NO_THROW(client->create("/ichi",      "one").get());
     ASSERT_NO_THROW(client->create("/ichinichi", "two").get());
 
