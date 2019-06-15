@@ -158,7 +158,7 @@ public:
                 std::unique_lock lock(lock_);
                 try {
                     auto res = kv_.commit({
-                        txn_ops::GetAll{key},
+                        txn_ops::GetAll{static_cast<std::string>(key) + "/"},
                         txn_ops::Get{key},
                     });
 
@@ -171,8 +171,7 @@ public:
                             util::filter_vector(
                                 std::vector<KeyValue>(res.begin(), --res.end()),
                                 [key = static_cast<std::string>(key)](const auto& key_value) {
-                                    return key_value.key != key &&
-                                           key_value.key.substr(key.size() + 1).find('/') == std::string::npos;
+                                    return key_value.key.find('/', key.size() + 1) == std::string::npos;
                                 }),
                             [this](const auto& key_value) {
                                 return detach_prefix_(key_value.key);

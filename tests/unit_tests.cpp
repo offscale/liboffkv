@@ -448,3 +448,32 @@ TEST_F(ClientFixture, erase_prefix_test)
 
     usedKeys.insert("/ichinichi");
 }
+
+TEST_F(ClientFixture, get_prefix_test)
+{
+    try {
+        client->erase("/sore");
+    } catch (...) {}
+
+    try {
+        client->erase("/sore/ga");
+    } catch (...) {}
+
+    try {
+        client->erase("/sorewanan");
+    } catch (...) {}
+
+    ASSERT_NO_THROW(client->create("/sore",      "1").get());
+    ASSERT_NO_THROW(client->create("/sore/ga",   "2").get());
+    ASSERT_NO_THROW(client->create("/sorewanan", "3").get());
+
+    liboffkv::ChildrenResult res;
+    ASSERT_NO_THROW(res = client->get_children("/sore").get());
+
+    ASSERT_EQ(res.children.size(), 1);
+    ASSERT_EQ(res.children[0], "/sore/ga");
+
+    usedKeys.insert("/sore");
+    usedKeys.insert("/sore/ga");
+    usedKeys.insert("/sorewanan");
+}
