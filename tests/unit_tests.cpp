@@ -458,15 +458,15 @@ TEST_F(ClientFixture, erase_prefix_test)
 TEST_F(ClientFixture, get_prefix_test)
 {
     try {
-        client->erase("/sore");
+        client->erase("/sore").get();
     } catch (...) {}
 
     try {
-        client->erase("/sore/ga");
+        client->erase("/sore/ga").get();
     } catch (...) {}
 
     try {
-        client->erase("/sorewanan");
+        client->erase("/sorewanan").get();
     } catch (...) {}
 
     ASSERT_NO_THROW(client->create("/sore",      "1").get());
