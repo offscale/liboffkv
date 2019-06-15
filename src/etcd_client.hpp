@@ -917,17 +917,15 @@ public:
                         case op::op_type::SET: {
                             auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
                             auto key = get_path_(set_op_ptr->key);
-                            auto parent = key.get_parent();
                             expected_existence.emplace_back();
 
-                            tb.add_check_exists(parent)
+                            tb.add_check_exists(key)
                               .on_success().add_put_request(key, set_op_ptr->value)
-                                           .add_range_request(key);
+                                           .add_range_request(key)
+                              .on_failure().add_range_request(key, true);
 
-                            if (parent.size()) {
-                                tb.on_failure().add_range_request(parent, true);
-                                expected_existence.back().push_back(true);
-                            }
+                            expected_existence.back().push_back(true);
+
                             set_indices.push_back(_i + 1);
 
                             _i += 2;

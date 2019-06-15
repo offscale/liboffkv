@@ -389,7 +389,8 @@ TEST_F(ClientFixture, commit_test)
                     liboffkv::op::create("/key/child", "value"),
                     liboffkv::op::create("/key/hackerivan", "new_value"),
                     liboffkv::op::erase("/foo"),
-                    liboffkv::op::set("/key/child/grandchild/hackerivan", "new_value"),
+                    // this fails because /key/child/grandchild does not exist
+                    liboffkv::op::set("/key/child/grandchild", "new_value"),
                     liboffkv::op::erase("/asfdsfasdfa"),
                 }
             }
@@ -406,7 +407,7 @@ TEST_F(ClientFixture, commit_test)
     ASSERT_TRUE(client->exists("/foo").get());
 
 
-    // everything is ok
+    // everything is OK
     liboffkv::TransactionResult result;
 
     ASSERT_NO_THROW({
