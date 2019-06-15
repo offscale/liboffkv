@@ -387,7 +387,7 @@ TEST_F(ClientFixture, commit_test)
                 },
                 {
                     liboffkv::op::create("/key/child", "value"),
-                    liboffkv::op::set("/key/hackerivan", "new_value"),
+                    liboffkv::op::create("/key/hackerivan", "new_value"),
                     liboffkv::op::erase("/foo"),
                     liboffkv::op::set("/key/child/grandchild/hackerivan", "new_value"),
                     liboffkv::op::erase("/asfdsfasdfa"),
