@@ -2,9 +2,9 @@ include(vcpkg_common_functions)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO raid-7/libetcd-cpp
-    REF fcb2afbd0e47e67aedbd1fee06ee132fc9a84c53
-    SHA512 459507ef8543657156822f208e709f013d2b4fb22736946de4295b96c7da85823829467ca2308168f96ee96cb94d20d53740598a6624fa2cbf78fd2d9d5dda54
+    REPO offscale/libetcd-cpp
+    REF cd394bd03affd35d5a7ec5d1535f52d49732143c
+    SHA512 d6bcafc05c359ccf523e8d3c468939ba2afc74bc7f34161783a0e7048f178326335c619a5e2ec31d9e6948149053ef6f51b9bc58821b97713d41c9bb27128408
     HEAD_REF master
 )
 
@@ -14,6 +14,6 @@ vcpkg_configure_cmake(
 )
 vcpkg_install_cmake()
 
-file(WRITE ${CURRENT_PACKAGES_DIR}/share/etcdpp/copyright "")
+file(INSTALL ${SOURCE_PATH}/LICENSE-MIT DESTINATION ${CURRENT_PACKAGES_DIR}/share/etcdpp RENAME copyright)
 
 vcpkg_copy_pdbs()
