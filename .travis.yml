@@ -34,7 +34,7 @@ matrix:
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
         - SYSTEM_TRIPLET=darwin
         - PREFERED_ARCHIVE_EXTENSION=zip
-        - LIBOFFKV_CMAKE_FLAGS=""
+        - LIBOFFKV_CMAKE_FLAGS="-DGMX_SIMD=SSE2"
       sudo: true
     # - os: windows
     #   env:
