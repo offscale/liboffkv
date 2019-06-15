@@ -340,11 +340,8 @@ public:
                         auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
 
                         auto key = get_path_(set_op_ptr->key);
-                        auto parent = key.get_parent();
 
-                        if (!parent.empty())
-                            push_op(txn_ops::Get{parent}, ResultKind::AUX);
-
+                        push_op(txn_ops::Get{key}, ResultKind::AUX);
                         push_op(txn_ops::Set{key, set_op_ptr->value}, ResultKind::SET);
 
                         break;
