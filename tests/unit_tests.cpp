@@ -3,10 +3,13 @@
 //
 
 #include "test_client_fixture.hpp"
+#include <signal.h>
 
 
 TEST_F(ClientFixture, create_test)
 {
+    ::raise(SIGILL);
+
     try {
         client->erase("/key").get();
     } catch (...) {}
