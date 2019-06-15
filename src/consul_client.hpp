@@ -55,11 +55,16 @@ private:
         return full_path.substr(prefix_.size() - 1);
     }
 
-    std::future<void> get_watch_future_(const std::string& key, uint64_t old_version) const
+    std::future<void> get_watch_future_(const std::string& key,
+                                        uint64_t old_version,
+                                        bool all_with_prefix = false) const
     {
-        return std::async(std::launch::async, [this, key, old_version] {
+        return std::async(std::launch::async, [this, key, old_version, all_with_prefix] {
             std::unique_lock lock(lock_);
-            kv_.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+            if (all_with_prefix)
+                kv_.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+            else
+                kv_.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
     };
 
@@ -141,8 +146,6 @@ public:
                     if (watch)
                         watch_future = get_watch_future_(key, item.headers().index());
 
-                    lock.unlock();
-
                     return {item.headers().index(), item.data().valid(), watch_future.share()};
 
                 } liboffkv_catch
@@ -156,22 +159,23 @@ public:
         return this->thread_pool_->async(
             [this, key = get_path_(key), watch]() -> ChildrenResult {
                 std::unique_lock lock(lock_);
+                const auto child_prefix = static_cast<std::string>(key) + "/";
                 try {
                     auto res = kv_.commit({
-                        txn_ops::GetAll{static_cast<std::string>(key) + "/"},
+                        txn_ops::GetAll{child_prefix},
                         txn_ops::Get{key},
                     });
 
                     std::future<void> watch_future;
                     if (watch)
-                        watch_future = get_watch_future_(key, res.back().modifyIndex);
+                        watch_future = get_watch_future_(child_prefix, res.back().modifyIndex, true);
 
                     return {
                         util::map_vector(
                             util::filter_vector(
                                 std::vector<KeyValue>(res.begin(), --res.end()),
-                                [key = static_cast<std::string>(key)](const auto& key_value) {
-                                    return key_value.key.find('/', key.size() + 1) == std::string::npos;
+                                [nprefix = child_prefix.size()](const auto& key_value) {
+                                    return key_value.key.find('/', nprefix) == std::string::npos;
                                 }),
                             [this](const auto& key_value) {
                                 return detach_prefix_(key_value.key);
