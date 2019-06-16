@@ -2,6 +2,7 @@
 
 #include <utility>
 #include <string>
+#include <algorithm>
 
 
 #include "operation.hpp"
@@ -129,46 +130,9 @@ public:
 
 namespace util {
 
-// We assume that each user operation maps to zero or more auxiliary (ResultKind::AUX or ResultKind::AUX_NO_RESULT)
-// operations, followed by exactly one non-auxiliary one.
-enum class ResultKind {
-    // This operation corresponds to a check user operation, produces 1 result.
-        CHECK,
-
-    // This operation corresponds to an op::op_type::CREATE user operation, produces 1 result.
-        CREATE,
-
-    // This operation corresponds to an op::op_type::SET user operation, produces 1 result.
-        SET,
-
-    // This operation corresponds to an op::op_type::ERASE user operation, produces no results.
-        ERASE_NO_RESULT,
-
-    // This is an auxiliary operation, produces 1 result.
-        AUX,
-
-    // This is an auxiliary operation, produces no results.
-        AUX_NO_RESULT,
-};
-
-size_t compute_offkv_operation_index(const std::vector<ResultKind>& result_kinds, const size_t raw_operation_index) {
-    size_t ncompleted = 0;
-
-    for (size_t i = 0; i < raw_operation_index; ++i) {
-        switch (result_kinds[i]) {
-            case ResultKind::CHECK:
-            case ResultKind::CREATE:
-            case ResultKind::SET:
-            case ResultKind::ERASE_NO_RESULT:
-                ++ncompleted;
-                break;
-            case ResultKind::AUX:
-            case ResultKind::AUX_NO_RESULT:
-                break;
-        }
-    }
-
-    return ncompleted;
+size_t user_op_index(const std::vector<size_t>& boundaries, size_t raw_op_index)
+{
+    return std::lower_bound(boundaries.begin(), boundaries.end(), raw_op_index) - boundaries.begin();
 }
 
 } // namespace util

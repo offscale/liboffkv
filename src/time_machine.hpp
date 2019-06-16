@@ -13,7 +13,9 @@
 #include <vector>
 
 
-namespace liboffkv { namespace time_machine {
+
+namespace liboffkv {
+namespace time_machine {
 
 class QueueClosed : public std::runtime_error {
 public:
@@ -101,6 +103,86 @@ private:
     bool closed_{false};
     std::mutex lock_;
     std::condition_variable consumer_cv_;
+};
+
+
+class PeriodicRegistration;
+
+
+class PeriodicUnregistered : public std::exception {
+};
+
+
+class PeriodicLock {
+private:
+    using State = std::pair<std::mutex, bool>;
+    std::shared_ptr<State> state_;
+
+    explicit PeriodicLock(std::shared_ptr<State> state)
+        : state_(std::move(state))
+    {}
+
+public:
+    void lock()
+    {
+        std::unique_lock lock(state_->first);
+        if (!state_->second)
+            throw PeriodicUnregistered{};
+
+        lock.release();
+    }
+
+    void unlock()
+    {
+        state_->first.unlock();
+    }
+
+
+    friend class PeriodicRegistration;
+};
+
+
+class PeriodicRegistration {
+private:
+    using State = PeriodicLock::State;
+    std::shared_ptr<State> state_;
+
+public:
+    PeriodicRegistration()
+        : state_(std::make_shared<State>())
+    {
+        state_->second = true;
+    }
+
+    PeriodicRegistration(const PeriodicRegistration&) = delete;
+
+    PeriodicRegistration& operator=(const PeriodicRegistration&) = delete;
+
+    PeriodicRegistration(PeriodicRegistration&& oth)
+        : state_(std::move(oth.state_))
+    {
+        oth.state_ = nullptr;
+    }
+
+    PeriodicRegistration& operator=(PeriodicRegistration&& oth)
+    {
+        state_ = std::move(oth.state_);
+        oth.state_ = nullptr;
+        return *this;
+    }
+
+    PeriodicLock get_lock()
+    {
+        return PeriodicLock(state_);
+    }
+
+    ~PeriodicRegistration()
+    {
+        if (state_) {
+            std::lock_guard lock(state_->first);
+            state_->second = false;
+        }
+    }
 };
 
 
@@ -216,13 +298,14 @@ public:
 
     // Function must be CopyConstructible
     template <class Function, class Time>
-    void periodic(Function&& func, const Time& duration)
+    PeriodicRegistration periodic(Function&& func, const Time& duration)
     {
         using Ms = std::chrono::milliseconds;
         using Clock = std::chrono::steady_clock;
         using TimePoint = Clock::time_point;
 
         std::shared_ptr<Ms> duration_ms = std::make_shared<Ms>(std::chrono::duration_cast<Ms>(duration));
+        PeriodicRegistration registration;
 
         std::shared_ptr<QueueData> self = std::make_shared<QueueData>();
         std::shared_ptr<TimePoint> start_time = std::make_shared<TimePoint>(Clock::now());
@@ -242,8 +325,10 @@ public:
                 return false;
             };
         self->second =
-            [self, start_time, duration = duration_ms, func = std::forward<Function>(func), queue = queue_]() mutable {
+            [self, start_time, periodic_lock = registration.get_lock(),
+                duration = duration_ms, func = std::forward<Function>(func), queue = queue_]() mutable {
                 try {
+                    std::lock_guard lock(periodic_lock);
                     if constexpr (std::is_same_v<std::invoke_result_t<std::decay_t<Function>>, void>) {
                         func();
                     } else {
@@ -251,7 +336,11 @@ public:
                         if (*duration == Ms::zero())
                             return;
                     }
+
+                } catch (PeriodicUnregistered&) {
+                    return;
                 } catch (...) {}
+
                 *start_time = Clock::now();
                 try {
                     queue->put(*self);
@@ -259,6 +348,8 @@ public:
             };
 
         queue_->put(*self);
+
+        return registration;
     }
 
     ~ThreadPool()
@@ -296,18 +387,18 @@ private:
 
     static void process_objects_(std::vector<QueueData>& picked, size_t wait_for_object_ms_)
     {
-		std::vector<size_t> erase_it;
+        std::vector<size_t> erase_it;
         for (auto it = picked.begin(); it < picked.end(); ++it) {
             if (it->first(std::chrono::milliseconds(wait_for_object_ms_))) {
                 it->second();
-				erase_it.push_back(it - picked.begin());
+                erase_it.push_back(it - picked.begin());
             }
         }
 
-		std::reverse(erase_it.begin(), erase_it.end());
-		for (auto index : erase_it) {
-			picked.erase(picked.begin() + index);
-		}
+        std::reverse(erase_it.begin(), erase_it.end());
+        for (auto index : erase_it) {
+            picked.erase(picked.begin() + index);
+        }
     }
 
 private:
@@ -317,4 +408,5 @@ private:
     unsigned long long wait_for_object_ms_;
 };
 
-}} // namespace time_machine, liboffkv
+}
+} // namespace time_machine, liboffkv

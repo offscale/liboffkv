@@ -13,6 +13,7 @@
 #include "util.hpp"
 
 
+
 class ClientFixture : public ::testing::Test {
 public:
     static
@@ -37,22 +38,60 @@ public:
 
     void TearDown()
     {
-        for (const auto& key : usedKeys) {
-            try {
-                client->erase(key).get();
-            } catch (liboffkv::NoEntry& exc) {}
-        }
-        usedKeys.clear();
     }
 
     static std::shared_ptr<liboffkv::time_machine::ThreadPool<>> timeMachine;
     static std::unique_ptr<liboffkv::Client> client;
-    static std::set<std::string> usedKeys;
+
+
+    class KeyHolder {
+    private:
+        std::string key_;
+
+    public:
+        explicit KeyHolder(std::string key)
+            : key_(std::move(key))
+        {
+            try {
+                client->erase(key_).get();
+            } catch (...) {}
+        }
+
+        KeyHolder(const KeyHolder&) = delete;
+
+        KeyHolder(KeyHolder&& oth)
+            : key_(std::move(oth.key_))
+        {
+            oth.key_ = "";
+        }
+
+        KeyHolder& operator=(const KeyHolder&) = delete;
+
+        KeyHolder& operator=(KeyHolder&& oth)
+        {
+            key_ = std::move(oth.key_);
+            oth.key_ = "";
+            return *this;
+        }
+
+        ~KeyHolder()
+        {
+            if (!key_.empty())
+                try {
+                    client->erase(key_).get();
+                } catch (...) {}
+        }
+    };
+
+    template <class... String>
+    static std::array<KeyHolder, sizeof...(String)> holdKeys(String&& ... keys)
+    {
+        return {KeyHolder(std::move(keys))...};
+    }
 };
 
 
 std::shared_ptr<liboffkv::time_machine::ThreadPool<>> ClientFixture::timeMachine;
 std::unique_ptr<liboffkv::Client> ClientFixture::client;
-std::set<std::string> ClientFixture::usedKeys;
 
 

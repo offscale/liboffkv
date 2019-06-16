@@ -11,6 +11,10 @@ function(create_test)
     target_link_libraries(test_${ARG_NAME} ${GTEST_BOTH_LIBRARIES})
     target_link_libraries(test_${ARG_NAME} ${ARG_LIBS})
 
+    if(NOT WIN32)
+        target_compile_options(test_${ARG_NAME} PRIVATE -Werror)
+    endif()
+
     if (NOT "${ARG_COMPILE_DEFINITIONS}" STREQUAL "")
         target_compile_definitions(test_${ARG_NAME} PRIVATE ${ARG_COMPILE_DEFINITIONS})
     endif()

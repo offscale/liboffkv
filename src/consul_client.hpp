@@ -9,11 +9,12 @@
 #include "key.hpp"
 
 
+
 namespace liboffkv {
 
 class ConsulClient : public Client {
 private:
-    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(20);
+    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(120);
 
     static constexpr auto TTL = std::chrono::seconds(10);
 
@@ -31,9 +32,9 @@ private:
     Kv kv_;
     Sessions sessions_;
 
-    std::string prefix_;
-
     mutable std::mutex lock_;
+
+    std::vector<time_machine::PeriodicRegistration> session_preiodics_;
 
 
     const Key get_path_(const std::string& key) const
@@ -60,21 +61,22 @@ private:
                                         bool all_with_prefix = false) const
     {
         return std::async(std::launch::async, [this, key, old_version, all_with_prefix] {
-            std::unique_lock lock(lock_);
+            Consul client{address_};
+            Kv kv{client, ppconsul::kw::consistency = CONSISTENCY};
+
             if (all_with_prefix)
-                kv_.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+                kv.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
             else
-                kv_.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+                kv.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
     };
 
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client(std::move(time_machine)),
+        : Client(address, prefix, std::move(time_machine)),
           client_(address),
           kv_(client_, ppconsul::kw::consistency = CONSISTENCY),
-          sessions_(client_, ppconsul::kw::consistency = CONSISTENCY),
-          prefix_(prefix)
+          sessions_(client_, ppconsul::kw::consistency = CONSISTENCY)
     {}
 
     ConsulClient() = delete;
@@ -99,27 +101,33 @@ public:
                 bool has_parent = (parent.size() > 0);
 
                 try {
-                    if (lease) {
-                        auto id = sessions_.create(key, std::chrono::seconds{15},
-                                                   ppconsul::sessions::InvalidationBehavior::Delete, TTL);
-                        thread_pool_->periodic(
-                            [this, id = std::move(id)] {
-                                try {
-                                    sessions_.renew(id);
-                                    return (TTL + std::chrono::seconds(1)) / 2;
-                                } catch (... /* BadStatus& ??*/) {
-                                    return std::chrono::seconds::zero();
-                                }
-                            }, (TTL + std::chrono::seconds(1)) / 2);
-                    }
-
                     std::vector<TxnOperation> ops;
 
                     if (has_parent)
                         ops.push_back(txn_ops::Get{parent});
 
                     ops.push_back(txn_ops::CheckNotExists{key});
-                    ops.push_back(txn_ops::Set{key, value});
+
+                    if (lease) {
+                        auto id = sessions_.create("", std::chrono::seconds{15},
+                                                   ppconsul::sessions::InvalidationBehavior::Delete, TTL);
+
+                        ops.push_back(txn_ops::Lock{key, value, id});
+
+                        auto client = std::make_shared<Consul>(address_);
+                        auto sessions = std::make_shared<Sessions>(*client, ppconsul::kw::consistency = CONSISTENCY);
+                        session_preiodics_.emplace_back(thread_pool_->periodic(
+                            [id = std::move(id), client = std::move(client), sessions = std::move(sessions)]() mutable {
+                                try {
+                                    sessions->renew(id);
+                                    return (TTL + std::chrono::seconds(1)) / 2;
+                                } catch (... /* BadStatus& ??*/) {
+                                    return std::chrono::seconds::zero();
+                                }
+                            }, (TTL + std::chrono::seconds(1)) / 2));
+                    } else {
+                        ops.push_back(txn_ops::Set{key, value});
+                    }
 
                     return {kv_.commit(ops).back().modifyIndex};
 
@@ -162,9 +170,9 @@ public:
                 const auto child_prefix = static_cast<std::string>(key) + "/";
                 try {
                     auto res = kv_.commit({
-                        txn_ops::GetAll{child_prefix},
-                        txn_ops::Get{key},
-                    });
+                                              txn_ops::GetAll{child_prefix},
+                                              txn_ops::Get{key},
+                                          });
 
                     std::future<void> watch_future;
                     if (watch)
@@ -300,25 +308,32 @@ public:
     {
         using namespace ppconsul::kv;
 
-        using util::ResultKind;
+        enum class ResultKind {
+            CREATE,
+            SET,
+            AUX,
+        };
 
         return thread_pool_->async([this, transaction] {
             std::unique_lock lock(lock_);
 
             std::vector<TxnOperation> ops;
+            std::vector<size_t> boundaries;
             std::vector<ResultKind> result_kinds;
 
-            const auto push_op = [&ops, &result_kinds](TxnOperation&& op, ResultKind rk) {
-                ops.emplace_back(std::move(op));
-                result_kinds.push_back(rk);
-            };
-
-            for (const auto& check : transaction.checks())
+            for (const auto& check : transaction.checks()) {
                 if (check.version)
-                    push_op(txn_ops::CheckIndex{get_path_(check.key), static_cast<uint64_t>(check.version)},
-                            ResultKind::CHECK);
+                    ops.push_back(txn_ops::CheckIndex{
+                        get_path_(check.key),
+                        static_cast<uint64_t>(check.version)
+                    });
                 else
-                    push_op(txn_ops::Get{get_path_(check.key)}, ResultKind::CHECK);
+                    ops.push_back(txn_ops::Get{get_path_(check.key)});
+
+                result_kinds.push_back(ResultKind::AUX);
+
+                boundaries.push_back(ops.size() - 1);
+            }
 
             for (const auto& op_ptr : transaction.operations()) {
                 switch (op_ptr->type) {
@@ -328,11 +343,16 @@ public:
                         auto key = get_path_(create_op_ptr->key);
                         auto parent = key.get_parent();
 
-                        if (!parent.empty())
-                            push_op(txn_ops::Get{parent}, ResultKind::AUX);
+                        if (!parent.empty()) {
+                            ops.push_back(txn_ops::Get{parent});
+                            result_kinds.push_back(ResultKind::AUX);
+                        }
 
-                        push_op(txn_ops::CheckNotExists{key}, ResultKind::AUX_NO_RESULT);
-                        push_op(txn_ops::Set{key, create_op_ptr->value}, ResultKind::CREATE);
+                        ops.push_back(txn_ops::CheckNotExists{key});
+                        // txn_ops::CheckNotExists does not produce any results
+
+                        ops.push_back(txn_ops::Set{key, create_op_ptr->value});
+                        result_kinds.push_back(ResultKind::CREATE);
 
                         break;
                     }
@@ -341,8 +361,11 @@ public:
 
                         auto key = get_path_(set_op_ptr->key);
 
-                        push_op(txn_ops::Get{key}, ResultKind::AUX);
-                        push_op(txn_ops::Set{key, set_op_ptr->value}, ResultKind::SET);
+                        ops.push_back(txn_ops::Get{key});
+                        result_kinds.push_back(ResultKind::AUX);
+
+                        ops.push_back(txn_ops::Set{key, set_op_ptr->value});
+                        result_kinds.push_back(ResultKind::SET);
 
                         break;
                     }
@@ -351,48 +374,41 @@ public:
 
                         auto key = get_path_(op_ptr->key);
 
-                        push_op(txn_ops::Get{key}, ResultKind::AUX);
-                        push_op(txn_ops::Erase{key}, ResultKind::AUX_NO_RESULT);
-                        push_op(txn_ops::EraseAll{static_cast<std::string>(key) + "/"},
-                                ResultKind::ERASE_NO_RESULT);
+                        ops.push_back(txn_ops::Get{key});
+                        result_kinds.push_back(ResultKind::AUX);
+
+                        ops.push_back(txn_ops::Erase{key});
+                        // txn_ops::Erase does not produce any results
+                        ops.push_back(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
+                        // txn_ops::EraseAll does not produce any results
 
                         break;
                     }
                 }
+
+                boundaries.push_back(ops.size() - 1);
             }
 
             try {
                 const auto results = kv_.commit(ops);
                 TransactionResult answer;
-
-                size_t result_index = 0;
-                for (ResultKind rk : result_kinds) {
-                    switch (rk) {
+                for (size_t i = 0; i < results.size(); ++i) {
+                    switch (result_kinds[i]) {
                         case ResultKind::CREATE:
-                            answer.push_back(CreateResult{results[result_index].modifyIndex});
-                            ++result_index;
+                            answer.push_back(CreateResult{results[i].modifyIndex});
                             break;
                         case ResultKind::SET:
-                            answer.push_back(SetResult{results[result_index].modifyIndex});
-                            ++result_index;
+                            answer.push_back(SetResult{results[i].modifyIndex});
                             break;
-                        case ResultKind::CHECK:
                         case ResultKind::AUX:
-                            ++result_index;
-                            break;
-                        case ResultKind::ERASE_NO_RESULT:
-                        case ResultKind::AUX_NO_RESULT:
                             break;
                     }
                 }
-
                 return answer;
 
             } catch (TxnAborted& e) {
                 const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
-                throw TransactionFailed{
-                    util::compute_offkv_operation_index(result_kinds, op_index)
-                };
+                throw TransactionFailed{util::user_op_index(boundaries, op_index)};
             }
         });
     }
