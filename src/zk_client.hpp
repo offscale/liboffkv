@@ -133,7 +133,7 @@ private:
                                 break;
                             case zk::op_type::check:
                             case zk::op_type::erase:
-                                liboffkv_unreachable();
+                                throw 1;
                         }
                     }
                 } catch (zk::transaction_failed& e) {
