@@ -56,11 +56,11 @@ before_script:
   - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
   - cd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
-  - CMAKE_PATH=$($TRAVIS_BUILD_DIR/travis/locate_vcpkg_cmake.sh "$HOME/vcpkg")
-  - export PATH="$PATH:$CMAKE_PATH"
   - eval "$OSX_ENABLE_CLANG"
   - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
   - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - CMAKE_PATH=$($TRAVIS_BUILD_DIR/travis/locate_vcpkg_cmake.sh "$HOME/vcpkg")
+  - export PATH="$PATH:$CMAKE_PATH"
   - if [[ "$TRAVIS_OS_NAME" != "windows" ]]; then travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh; fi
   - if [[ "$TRAVIS_OS_NAME" != "windows" ]]; then travis_wait 35 ./vcpkg install etcdpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh; fi
   - rm -rf buildtrees
