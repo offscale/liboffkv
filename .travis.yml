@@ -44,6 +44,7 @@ matrix:
         - SYSTEM_TRIPLET=windows
         - PREFERED_ARCHIVE_EXTENSION=zip
         - LIBOFFKV_CMAKE_FLAGS="-DENABLE_ETCD=OFF -DENABLE_ZK=OFF"
+        - SYSTEM_CMAKE_FLAGS="-G 'Visual Studio 16 2019'"
 
 before_install:
   - eval "${MATRIX_EVAL}"
@@ -56,15 +57,15 @@ before_script:
   - cd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
   - eval "$OSX_ENABLE_CLANG"
-  - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  # - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  # - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
   - if [[ "$TRAVIS_OS_NAME" != "windows" ]]; then travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh; fi
   - if [[ "$TRAVIS_OS_NAME" != "windows" ]]; then travis_wait 35 ./vcpkg install etcdcpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh; fi
   - rm -rf buildtrees
 
 script:
   - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$TRAVIS_BUILD_DIR/cmake-build-debug"
-  - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ${LIBOFFKV_CMAKE_FLAGS} ..
+  - cmake ${SYSTEM_CMAKE_FLAGS} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ${LIBOFFKV_CMAKE_FLAGS} ..
   - cmake --build .
   - $TRAVIS_BUILD_DIR/travis/bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
   - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
