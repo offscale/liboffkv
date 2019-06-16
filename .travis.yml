@@ -42,7 +42,7 @@ matrix:
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
         - SYSTEM_TRIPLET=windows
         - PREFERED_ARCHIVE_EXTENSION=zip
-        - LIBOFFKV_CMAKE_FLAGS=""
+        - LIBOFFKV_CMAKE_FLAGS="-DENABLE_ETCD=OFF -DENABLE_ZK=OFF"
 
 before_install:
   - eval "${MATRIX_EVAL}"
@@ -57,8 +57,8 @@ before_script:
   - eval "$OSX_ENABLE_CLANG"
   - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
   - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 35 ./vcpkg install etcdcpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - if [[ "$TRAVIS_OS_NAME" != "windows" ]]; then travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh; fi
+  - if [[ "$TRAVIS_OS_NAME" != "windows" ]]; then travis_wait 35 ./vcpkg install etcdcpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh; fi
   - rm -rf buildtrees
 
 script:
