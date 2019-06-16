@@ -132,7 +132,7 @@ private:
                                 break;
                             case zk::op_type::check:
                             case zk::op_type::erase:
-                                throw 1;
+                                break;
                         }
                     }
                 } catch (zk::transaction_failed& e) {
