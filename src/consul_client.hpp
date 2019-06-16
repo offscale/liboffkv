@@ -99,9 +99,19 @@ public:
                 bool has_parent = (parent.size() > 0);
 
                 try {
+                    std::vector<TxnOperation> ops;
+
+                    if (has_parent)
+                        ops.push_back(txn_ops::Get{parent});
+
+                    ops.push_back(txn_ops::CheckNotExists{key});
+
                     if (lease) {
-                        auto id = sessions_.create(key, std::chrono::seconds{15},
+                        auto id = sessions_.create("", std::chrono::seconds{15},
                                                    ppconsul::sessions::InvalidationBehavior::Delete, TTL);
+
+                        ops.push_back(txn_ops::Lock{key, value, id});
+
                         thread_pool_->periodic(
                             [this, id = std::move(id)] {
                                 try {
@@ -111,15 +121,9 @@ public:
                                     return std::chrono::seconds::zero();
                                 }
                             }, (TTL + std::chrono::seconds(1)) / 2);
+                    } else {
+                        ops.push_back(txn_ops::Set{key, value});
                     }
-
-                    std::vector<TxnOperation> ops;
-
-                    if (has_parent)
-                        ops.push_back(txn_ops::Get{parent});
-
-                    ops.push_back(txn_ops::CheckNotExists{key});
-                    ops.push_back(txn_ops::Set{key, value});
 
                     return {kv_.commit(ops).back().modifyIndex};
 
@@ -162,9 +166,9 @@ public:
                 const auto child_prefix = static_cast<std::string>(key) + "/";
                 try {
                     auto res = kv_.commit({
-                                              txn_ops::GetAll{child_prefix},
-                                              txn_ops::Get{key},
-                                          });
+                        txn_ops::GetAll{child_prefix},
+                        txn_ops::Get{key},
+                    });
 
                     std::future<void> watch_future;
                     if (watch)
