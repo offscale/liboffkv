@@ -3,6 +3,7 @@
 //
 
 #include "test_client_fixture.hpp"
+#include <stdio.h>
 
 
 TEST_F(ClientFixture, create_test)
@@ -334,6 +335,8 @@ TEST_F(ClientFixture, get_children_with_watch_test)
 
 TEST_F(ClientFixture, commit_test)
 {
+    fprintf(stderr, "(0)\n");
+
     try {
         client->erase("/key").get();
     } catch (...) {}
@@ -342,10 +345,13 @@ TEST_F(ClientFixture, commit_test)
         client->erase("/foo").get();
     } catch (...) {}
 
+    fprintf(stderr, "(0.5)\n");
 
     auto key_version = client->create("/key", "value").get().version;
     auto foo_version = client->create("/foo", "value").get().version;
     auto bar_version = client->create("/foo/bar", "value").get().version;
+
+    fprintf(stderr, "(1)\n");
 
     // check fails
     try {
@@ -371,10 +377,13 @@ TEST_F(ClientFixture, commit_test)
         FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception:\n" << e.what();
     }
 
+    puts("(2)");
+
     ASSERT_FALSE(client->exists("/key/child").get());
     ASSERT_EQ(client->get("/key").get().value, "value");
     ASSERT_TRUE(client->exists("/foo").get());
 
+    fprintf(stderr, "(3)\n");
 
     // op fails
     try {
@@ -403,12 +412,17 @@ TEST_F(ClientFixture, commit_test)
         FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception:\n" << e.what();
     }
 
+    fprintf(stderr, "(4)\n");
+
     ASSERT_FALSE(client->exists("/key/child").get());
     ASSERT_TRUE(client->exists("/foo").get());
 
+    fprintf(stderr, "(5)\n");
 
     // everything is OK
     liboffkv::TransactionResult result;
+
+    fprintf(stderr, "(6)\n");
 
     ASSERT_NO_THROW({
         result = client->commit(
@@ -427,9 +441,13 @@ TEST_F(ClientFixture, commit_test)
         ).get();
     });
 
+    fprintf(stderr, "(7)\n");
+
     ASSERT_TRUE(client->exists("/key/child").get());
     ASSERT_EQ(client->get("/key").get().value, "new_value");
     ASSERT_FALSE(client->exists("/foo").get());
+
+    fprintf(stderr, "(8)\n");
 
 
     ASSERT_GT(result[1].version, key_version);
