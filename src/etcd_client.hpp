@@ -840,7 +840,7 @@ public:
     }
 
 
-    std::future<void> erase(const std::string& key, uint64_t version = 0)
+    std::future<void> erase(const std::string& key, uint64_t version = 0) override
     {
         return thread_pool_->async(
             [this, key = get_path_(key), version] {
@@ -873,7 +873,7 @@ public:
     }
 
 
-    std::future<TransactionResult> commit(const Transaction& transaction)
+    std::future<TransactionResult> commit(const Transaction& transaction) override
     {
         return thread_pool_->async(
             [this, transaction]() -> TransactionResult {
