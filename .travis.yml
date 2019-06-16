@@ -9,39 +9,40 @@ cache:
 
 matrix:
   include:
-    - os: linux
-      sudo: true
+    # - os: linux
+    #   sudo: true
+    #   env:
+    #     - VCPKG_TRIPLET=x64-linux
+    #     - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
+    #     - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+    #     - SYSTEM_TRIPLET=linux
+    #     - PREFERED_ARCHIVE_EXTENSION=tar.gz
+    #     - LIBOFFKV_CMAKE_FLAGS=""
+    #   addons:
+    #     apt:
+    #       sources:
+    #         - ubuntu-toolchain-r-test
+    #       packages:
+    #         - g++-8
+    #         - cmake
+    # - os: osx
+    #   osx_image: xcode10.2
+    #   env:
+    #     - MATRIX_EVAL="brew install gcc@7"
+    #     - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
+    #     - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
+    #     - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+    #     - SYSTEM_TRIPLET=darwin
+    #     - PREFERED_ARCHIVE_EXTENSION=zip
+    #     - LIBOFFKV_CMAKE_FLAGS=""
+    #   sudo: true
+    - os: windows
       env:
-        - VCPKG_TRIPLET=x64-linux
-        - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
-        - SYSTEM_TRIPLET=linux
-        - PREFERED_ARCHIVE_EXTENSION=tar.gz
-        - LIBOFFKV_CMAKE_FLAGS=""
-      addons:
-        apt:
-          sources:
-            - ubuntu-toolchain-r-test
-          packages:
-            - g++-8
-            - cmake
-    - os: osx
-      osx_image: xcode10.2
-      env:
-        - MATRIX_EVAL="brew install gcc@7"
-        - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
-        - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
-        - SYSTEM_TRIPLET=darwin
+        - VCPKG_TRIPLET=x64-windows
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
+        - SYSTEM_TRIPLET=windows
         - PREFERED_ARCHIVE_EXTENSION=zip
         - LIBOFFKV_CMAKE_FLAGS=""
-      sudo: true
-    # - os: windows
-    #   env:
-    #     - VCPKG_TRIPLET=x64-windows
-    #     - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
-    #     - SYSTEM_TRIPLET=windows
-    #     - PREFERED_ARCHIVE_EXTENSION=zip
 
 before_install:
   - eval "${MATRIX_EVAL}"
