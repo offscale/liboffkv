@@ -71,6 +71,7 @@ public:
         {
             key_ = std::move(oth.key_);
             oth.key_ = "";
+            return *this;
         }
 
         ~KeyHolder()
