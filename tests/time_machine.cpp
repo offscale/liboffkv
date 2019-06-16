@@ -52,7 +52,7 @@ TEST(time_machine_test, test_1)
     auto prev = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch());
 
-    timeMachine.periodic([
+    auto registration = timeMachine.periodic([
             l = std::make_shared<int>(0),
             &prev,
             &interval,
@@ -66,4 +66,22 @@ TEST(time_machine_test, test_1)
     }, std::chrono::milliseconds(interval));
 
     std::this_thread::sleep_for(std::chrono::seconds(4));
+}
+
+TEST(time_machine_test, test_2)
+{
+    using namespace std::chrono_literals;
+    time_machine::ThreadPool<std::promise, std::future> timeMachine;
+
+    auto unregistered = std::make_shared<std::atomic<bool>>(false);
+
+    {
+        auto registration = timeMachine.periodic([unregistered] {
+            ASSERT_FALSE(unregistered->load());
+        }, 100ms);
+        std::this_thread::sleep_for(1s);
+    }
+
+    unregistered->store(true);
+    std::this_thread::sleep_for(1s);
 }

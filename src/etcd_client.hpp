@@ -15,6 +15,7 @@
 #include "time_machine.hpp"
 
 
+
 namespace liboffkv {
 
 namespace helper {
@@ -49,6 +50,7 @@ private:
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
     std::unique_ptr<WatchEndpoint::Stub> watch_stub_;
+    time_machine::PeriodicRegistration lease_periodic_;
     std::shared_ptr<time_machine::ThreadPool<>> thread_pool_;
     std::atomic<int64_t> lease_id_{0};
     std::mutex lock_;
@@ -219,7 +221,7 @@ private:
         return current_watch_write_->get_future();
     }
 
-    const void setup_lease_renewal_m(const int64_t lease_id, const uint64_t ttl) const
+    const void setup_lease_renewal_m(const int64_t lease_id, const uint64_t ttl)
     {
         std::shared_ptr<grpc::ClientContext> ctx = std::make_shared<grpc::ClientContext>();
         std::shared_ptr<grpc::ClientReaderWriter<LeaseKeepAliveRequest, LeaseKeepAliveResponse>> stream =
@@ -228,7 +230,7 @@ private:
         LeaseKeepAliveRequest req;
         req.set_id(lease_id);
 
-        thread_pool_->periodic(
+        lease_periodic_ = thread_pool_->periodic(
             [req = std::move(req), ctx = ctx, stream = std::move(stream)]() mutable {
                 if (!stream->Write(req)) {
                     return std::chrono::seconds::zero();
@@ -241,7 +243,7 @@ private:
         );
     }
 
-    const int64_t create_lease_m() const
+    const int64_t create_lease_m()
     {
         LeaseGrantRequest req;
         req.set_id(0);
@@ -254,7 +256,7 @@ private:
         if (!status.ok())
             throw ServiceException(status.error_message());
 
-        setup_lease_renewal_m(lease_id_, response.ttl());
+        setup_lease_renewal_m(response.id(), response.ttl());
         return response.id();
     }
 
@@ -335,7 +337,7 @@ private:
 
 
     Compare* make_compare_(const std::string& key, etcdserverpb::Compare_CompareTarget target,
-                                                   etcdserverpb::Compare_CompareResult result)
+                           etcdserverpb::Compare_CompareResult result)
     {
         auto cmp = txn_.add_compare();
         cmp->set_key(key);
@@ -585,7 +587,7 @@ public:
                 ETCDTransactionBuilder tb;
 
                 tb.add_check_exists(key.get_parent())
-                  .add_check_not_exists(key);
+                    .add_check_not_exists(key);
 
                 // on success: put value
                 // put request
@@ -694,7 +696,7 @@ public:
                     [promise = watch_promise, old_keys = std::move(raw_keys)](const ETCDHelper::Event& ev) {
                         bool old = old_keys.find(ev.kv().key()) != old_keys.end();
                         if ((old && ev.type() == ETCDHelper::EventType::Event_EventType_DELETE) ||
-                               (!old && ev.type() == ETCDHelper::EventType::Event_EventType_PUT)) {
+                            (!old && ev.type() == ETCDHelper::EventType::Event_EventType_PUT)) {
                             promise->set_value();
                             return true;
                         }
@@ -729,7 +731,7 @@ public:
 
                     // on success: put value and get new version
                     tb.on_success().add_put_request(key, value, 0, expect_lease)
-                                   .add_range_request(key);
+                        .add_range_request(key);
 
                     // on failure: range request to recognize failure reason
                     tb.on_failure().add_range_request(parent, true);
@@ -773,7 +775,7 @@ public:
 
                 // on success: put new value, get new version
                 tb.on_success().add_put_request(key, value, 0, true)
-                               .add_range_request(key, true);
+                    .add_range_request(key, true);
 
                 // on fail: check if the given key exists
                 tb.on_failure().add_range_request(key, true);
@@ -859,7 +861,7 @@ public:
                 auto key_end = key.with_transformer(erase_children_key_transformer(true));
 
                 tb.on_success().add_delete_range_request(key)
-                               .add_delete_range_request(key_begin, key_end);
+                    .add_delete_range_request(key_begin, key_end);
 
                 // on failure: check if key exists
                 tb.on_failure().add_range_request(key, true);
@@ -886,7 +888,7 @@ public:
                 for (const auto& check : transaction.checks()) {
                     auto key = get_path_(check.key);
                     tb.add_version_compare(key, check.version)
-                      .on_failure().add_range_request(key);
+                        .on_failure().add_range_request(key);
                 }
 
                 for (const auto& op_ptr : transaction.operations()) {
@@ -898,10 +900,10 @@ public:
                             expected_existence.emplace_back();
 
                             tb.add_check_exists(parent)
-                              .add_check_not_exists(key)
-                              .on_success().add_put_request(key, create_op_ptr->value,
-                                                            create_op_ptr->leased ? helper_.get_lease() : 0)
-                              .on_failure().add_range_request(key, true);
+                                .add_check_not_exists(key)
+                                .on_success().add_put_request(key, create_op_ptr->value,
+                                                              create_op_ptr->leased ? helper_.get_lease() : 0)
+                                .on_failure().add_range_request(key, true);
 
                             expected_existence.back().push_back(false);
                             if (parent.size()) {
@@ -918,9 +920,9 @@ public:
                             expected_existence.emplace_back();
 
                             tb.add_check_exists(key)
-                              .on_success().add_put_request(key, set_op_ptr->value)
-                                           .add_range_request(key)
-                              .on_failure().add_range_request(key, true);
+                                .on_success().add_put_request(key, set_op_ptr->value)
+                                .add_range_request(key)
+                                .on_failure().add_range_request(key, true);
 
                             expected_existence.back().push_back(true);
 
@@ -936,8 +938,8 @@ public:
                             expected_existence.emplace_back();
 
                             tb.add_check_exists(key)
-                              .on_success().add_delete_range_request(key)
-                              .on_failure().add_range_request(key, true);
+                                .on_success().add_delete_range_request(key)
+                                .on_failure().add_range_request(key, true);
 
                             expected_existence.back().push_back(true);
 
@@ -963,7 +965,7 @@ public:
                     for (size_t i = 0; i < transaction.operations().size(); ++i)
                         for (bool should_exist : expected_existence[i]) {
                             if (should_exist ^ static_cast<bool>(responses[j + tr_checks_number]
-                                                                    .release_response_range()->kvs_size()))
+                                .release_response_range()->kvs_size()))
                                 throw TransactionFailed{i + tr_checks_number};
                             ++j;
                         }

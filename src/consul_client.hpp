@@ -34,6 +34,8 @@ private:
 
     mutable std::mutex lock_;
 
+    std::vector<time_machine::PeriodicRegistration> session_preiodics_;
+
 
     const Key get_path_(const std::string& key) const
     {
@@ -112,15 +114,17 @@ public:
 
                         ops.push_back(txn_ops::Lock{key, value, id});
 
-                        thread_pool_->periodic(
-                            [this, id = std::move(id)] {
+                        auto client = std::make_shared<Consul>(address_);
+                        auto sessions = std::make_shared<Sessions>(*client, ppconsul::kw::consistency = CONSISTENCY);
+                        session_preiodics_.emplace_back(thread_pool_->periodic(
+                            [id = std::move(id), client = std::move(client), sessions = std::move(sessions)]() mutable {
                                 try {
-                                    sessions_.renew(id);
+                                    sessions->renew(id);
                                     return (TTL + std::chrono::seconds(1)) / 2;
                                 } catch (... /* BadStatus& ??*/) {
                                     return std::chrono::seconds::zero();
                                 }
-                            }, (TTL + std::chrono::seconds(1)) / 2);
+                            }, (TTL + std::chrono::seconds(1)) / 2));
                     } else {
                         ops.push_back(txn_ops::Set{key, value});
                     }
@@ -166,9 +170,9 @@ public:
                 const auto child_prefix = static_cast<std::string>(key) + "/";
                 try {
                     auto res = kv_.commit({
-                        txn_ops::GetAll{child_prefix},
-                        txn_ops::Get{key},
-                    });
+                                              txn_ops::GetAll{child_prefix},
+                                              txn_ops::Get{key},
+                                          });
 
                     std::future<void> watch_future;
                     if (watch)

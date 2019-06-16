@@ -92,12 +92,12 @@ TEST_F(ClientFixture, create_with_lease_test)
         auto local_client = liboffkv::connect(SERVICE_ADDRESS, "/unitTests", timeMachine);
         ASSERT_NO_THROW(local_client->create("/key", "value", true).get());
 
-        std::this_thread::sleep_for(20s);
+        std::this_thread::sleep_for(25s);
 
         ASSERT_TRUE(client->exists("/key").get());
     }
 
-    std::this_thread::sleep_for(20s);
+    std::this_thread::sleep_for(25s);
 
     {
         auto local_client = liboffkv::connect(SERVICE_ADDRESS, "/unitTests", timeMachine);
