@@ -22,7 +22,6 @@ private:
     using Key = key::Key;
 
     zk::client client_;
-    std::string prefix_;
 
     static
     buffer from_string(const std::string& str)
@@ -153,9 +152,8 @@ private:
 
 public:
     ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client(std::move(time_machine)),
-          client_(zk::client::connect(address).get()),
-          prefix_(prefix)
+        : Client(address, prefix, std::move(time_machine)),
+          client_(zk::client::connect(address).get())
     {
         if (!prefix.empty()) {
             const std::vector<std::string> entries = key::get_entry_sequence(prefix);

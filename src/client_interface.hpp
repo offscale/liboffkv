@@ -9,6 +9,7 @@
 #include "key.hpp"
 
 
+
 namespace liboffkv {
 
 class Client {
@@ -18,8 +19,10 @@ protected:
     std::string address_;
     std::string prefix_;
 
-    Client(std::shared_ptr<ThreadPool> time_machine = nullptr)
-        : thread_pool_(time_machine == nullptr ? std::make_shared<ThreadPool>() : std::move(time_machine))
+    Client(std::string address, std::string prefix, std::shared_ptr<ThreadPool> time_machine = nullptr)
+        : thread_pool_(time_machine == nullptr ? std::make_shared<ThreadPool>() : std::move(time_machine)),
+          address_(std::move(address)),
+          prefix_(std::move(prefix))
     {}
 
 public:

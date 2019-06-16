@@ -486,7 +486,6 @@ private:
 
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<KV::Stub> stub_;
-    std::string prefix_;
 
     ETCDHelper helper_;
 
@@ -558,10 +557,9 @@ private:
 
 public:
     ETCDClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> tm)
-        : Client(std::move(tm)),
+        : Client(address, prefix, std::move(tm)),
           channel_(grpc::CreateChannel(address, grpc::InsecureChannelCredentials())),
           stub_(KV::NewStub(channel_)),
-          prefix_(prefix),
           helper_(channel_, thread_pool_)
     {}
 

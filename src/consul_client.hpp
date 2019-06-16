@@ -9,11 +9,12 @@
 #include "key.hpp"
 
 
+
 namespace liboffkv {
 
 class ConsulClient : public Client {
 private:
-    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(20);
+    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(120);
 
     static constexpr auto TTL = std::chrono::seconds(10);
 
@@ -30,8 +31,6 @@ private:
     Consul client_;
     Kv kv_;
     Sessions sessions_;
-
-    std::string prefix_;
 
     mutable std::mutex lock_;
 
@@ -60,21 +59,22 @@ private:
                                         bool all_with_prefix = false) const
     {
         return std::async(std::launch::async, [this, key, old_version, all_with_prefix] {
-            std::unique_lock lock(lock_);
+            Consul client{address_};
+            Kv kv{client};
+
             if (all_with_prefix)
-                kv_.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+                kv.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
             else
-                kv_.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
+                kv.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
     };
 
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client(std::move(time_machine)),
+        : Client(address, prefix, std::move(time_machine)),
           client_(address),
           kv_(client_, ppconsul::kw::consistency = CONSISTENCY),
-          sessions_(client_, ppconsul::kw::consistency = CONSISTENCY),
-          prefix_(prefix)
+          sessions_(client_, ppconsul::kw::consistency = CONSISTENCY)
     {}
 
     ConsulClient() = delete;
@@ -162,9 +162,9 @@ public:
                 const auto child_prefix = static_cast<std::string>(key) + "/";
                 try {
                     auto res = kv_.commit({
-                        txn_ops::GetAll{child_prefix},
-                        txn_ops::Get{key},
-                    });
+                                              txn_ops::GetAll{child_prefix},
+                                              txn_ops::Get{key},
+                                          });
 
                     std::future<void> watch_future;
                     if (watch)
@@ -386,14 +386,14 @@ public:
                 TransactionResult answer;
                 for (size_t i = 0; i < results.size(); ++i) {
                     switch (result_kinds[i]) {
-                    case ResultKind::CREATE:
-                        answer.push_back(CreateResult{results[i].modifyIndex});
-                        break;
-                    case ResultKind::SET:
-                        answer.push_back(SetResult{results[i].modifyIndex});
-                        break;
-                    case ResultKind::AUX:
-                        break;
+                        case ResultKind::CREATE:
+                            answer.push_back(CreateResult{results[i].modifyIndex});
+                            break;
+                        case ResultKind::SET:
+                            answer.push_back(SetResult{results[i].modifyIndex});
+                            break;
+                        case ResultKind::AUX:
+                            break;
                     }
                 }
                 return answer;
