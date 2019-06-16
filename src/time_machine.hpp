@@ -168,6 +168,7 @@ public:
     {
         state_ = std::move(oth.state_);
         oth.state_ = nullptr;
+        return *this;
     }
 
     PeriodicLock get_lock()
