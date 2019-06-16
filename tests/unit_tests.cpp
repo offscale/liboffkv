@@ -377,7 +377,7 @@ TEST_F(ClientFixture, commit_test)
         FAIL() << "Expected commit to throw TransactionFailed, but it threw different exception:\n" << e.what();
     }
 
-    puts("(2)");
+    fprintf(stderr, "(2)\n");
 
     ASSERT_FALSE(client->exists("/key/child").get());
     ASSERT_EQ(client->get("/key").get().value, "value");
@@ -424,22 +424,20 @@ TEST_F(ClientFixture, commit_test)
 
     fprintf(stderr, "(6)\n");
 
-    ASSERT_NO_THROW({
-        result = client->commit(
+    result = client->commit(
+        {
             {
-                {
-                    liboffkv::op::Check("/key", key_version),
-                    liboffkv::op::Check("/foo", foo_version),
-                    liboffkv::op::Check("/foo/bar", bar_version),
-                },
-                {
-                    liboffkv::op::create("/key/child", "value"),
-                    liboffkv::op::set("/key", "new_value"),
-                    liboffkv::op::erase("/foo"),
-                }
+                liboffkv::op::Check("/key", key_version),
+                liboffkv::op::Check("/foo", foo_version),
+                liboffkv::op::Check("/foo/bar", bar_version),
+            },
+            {
+                liboffkv::op::create("/key/child", "value"),
+                liboffkv::op::set("/key", "new_value"),
+                liboffkv::op::erase("/foo"),
             }
-        ).get();
-    });
+        }
+    ).get();
 
     fprintf(stderr, "(7)\n");
 

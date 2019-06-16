@@ -4,6 +4,7 @@
 #include <zk/error.hpp>
 #include <zk/multi.hpp>
 #include <zk/types.hpp>
+#include <stdio.h>
 
 
 #include "client_interface.hpp"
@@ -65,11 +66,17 @@ private:
 
     std::future<TransactionResult> commit_impl_(Transaction transaction)
     {
+        fprintf(stderr, "[0]\n");
+
         using util::ResultKind;
         auto ops = std::make_shared<std::vector<ResultKind>>();
 
+        fprintf(stderr, "[1]\n");
+
         std::future<zk::multi_op> txn = thread_pool_->async(
             [this, transaction = std::move(transaction), ops_ptr = ops] {
+                fprintf(stderr, "[2]\n");
+
                 zk::multi_op trn;
                 std::vector<ResultKind>& ops = *ops_ptr;
 
@@ -79,6 +86,8 @@ private:
                                       check.version ? zk::version(check.version - 1) : zk::version::any()));
                     ops.emplace_back(ResultKind::CHECK);
                 }
+
+                fprintf(stderr, "[3]\n");
 
                 for (const auto& op_ptr : transaction.operations()) {
                     switch (op_ptr->type) {
@@ -103,7 +112,9 @@ private:
                             auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
 
                             size_t n_before_erase = trn.size();
+                            fprintf(stderr, "[>make_recursive_erase_query]\n");
                             make_recursive_erase_query(trn, get_path_(erase_op_ptr->key));
+                            fprintf(stderr, "[<make_recursive_erase_query]\n");
                             size_t n_after_erase = trn.size();
 
                             for (int i = n_before_erase; i < n_after_erase; ++i) {
@@ -118,22 +129,29 @@ private:
                     }
                 }
 
+                fprintf(stderr, "[4]\n");
+
                 return trn;
             });
+
+        fprintf(stderr, "[5]\n");
 
         return thread_pool_->then(
             thread_pool_->then(
                 std::move(txn),
                 [this](std::future<zk::multi_op>&& txn) {
+                    fprintf(stderr, "[commit]\n");
                     return client_.commit(txn.get()).get();
                 },
                 true
             ), [ops_ptr = ops](std::future<zk::multi_result>&& multi_res) {
+                fprintf(stderr, "[result]\n");
                 TransactionResult result;
                 const std::vector<ResultKind>& ops = *ops_ptr;
 
                 try {
                     auto multi_res_unwrapped = util::call_get(std::move(multi_res));
+                    fprintf(stderr, "[unwrapped]\n");
 
                     for (const auto& res : multi_res_unwrapped) {
                         switch (res.type()) {
@@ -146,11 +164,13 @@ private:
                                 break;
                             case zk::op_type::check:
                             case zk::op_type::erase:
-                                liboffkv_unreachable();
+                                fprintf(stderr, "[~UNREACHABLE~]\n");
                         }
                     }
                 } catch (zk::transaction_failed& e) {
+                    fprintf(stderr, "[aborted]\n");
                     auto op_index = e.failed_op_index();
+                    fprintf(stderr, "[throw]\n");
                     if (ops[op_index] == ResultKind::AUX)
                         std::rethrow_exception(std::current_exception());
                     throw TransactionFailed(util::compute_offkv_operation_index(ops, op_index));
@@ -429,18 +449,27 @@ public:
 
     std::future<TransactionResult> commit(const Transaction& transaction) override
     {
+        fprintf(stderr, "<begin>\n");
+
         auto promise = std::make_shared<std::promise<TransactionResult>>();
         auto try_commit = std::make_shared<std::function<void(void)>>();
 
+        fprintf(stderr, "<0>\n");
+
         *try_commit = [this, try_commit, transaction, promise] {
+            fprintf(stderr, "<1>\n");
+
             thread_pool_->then(
                 commit_impl_(transaction),
                 [try_commit, promise](std::future<TransactionResult>&& res) -> void {
+                    fprintf(stderr, "<kek>\n");
                     try {
                         promise->set_value(res.get());
                     } catch (zk::transaction_failed& e) {
+                        fprintf(stderr, "<again>\n");
                         (*try_commit)();
                     } catch (...) {
+                        fprintf(stderr, "<exception>\n");
                         promise->set_exception(std::current_exception());
                     }
                 }
@@ -448,6 +477,7 @@ public:
         };
 
         (*try_commit)();
+        fprintf(stderr, "<end>\n");
         return promise->get_future();
     }
 };
