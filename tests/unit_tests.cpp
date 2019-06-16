@@ -3,31 +3,24 @@
 //
 
 #include "test_client_fixture.hpp"
+#include <chrono>
 
 
 TEST_F(ClientFixture, create_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
-
+    auto holder = holdKeys("/key");
 
     ASSERT_NO_THROW(client->create("/key", "value").get());
     ASSERT_THROW(client->create("/key", "value").get(), liboffkv::EntryExists);
 
     ASSERT_THROW(client->create("/key/child/grandchild", "value").get(), liboffkv::NoEntry);
     ASSERT_NO_THROW(client->create("/key/child", "value").get());
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, exists_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
-
+    auto holder = holdKeys("/key");
 
     auto result = client->exists("/key").get();
     ASSERT_FALSE(result);
@@ -38,17 +31,12 @@ TEST_F(ClientFixture, exists_test)
     result = client->exists("/key").get();
     ASSERT_TRUE(result);
     ASSERT_TRUE(result.exists);
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, erase_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
-
+    auto holder = holdKeys("/key");
 
     ASSERT_THROW(client->erase("/key").get(), liboffkv::NoEntry);
 
@@ -67,16 +55,12 @@ TEST_F(ClientFixture, erase_test)
 
     ASSERT_NO_THROW(client->erase("/key", initialVersion).get());
     ASSERT_FALSE(client->exists("/key").get());
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, exists_with_watch_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     client->create("/key", "value").get();
 
@@ -96,39 +80,35 @@ TEST_F(ClientFixture, exists_with_watch_test)
 
     result.watch.get();
     ASSERT_FALSE(client->exists("/key").get());
-
-    usedKeys.insert("/key");
 }
 
 
-// TODO. Current version definitely won't work
-//TEST_F(ClientFixture, create_with_lease_test)
-//{
-//    try {
-//        client->erase("/key").get();
-//    } catch (...) {}
-//
-//
-//    ASSERT_NO_THROW(client->create("/key", "value", true).get());
-//    ASSERT_NO_THROW(client->create("/key/child", "value", true).get());
-//
-//    // TODO: think about a better solution
-//    auto address = client->address();
-//    client.reset();
-//    client = connect(address, "/unitTests", timeMachine);
-//
-//    ASSERT_FALSE(client->exists("/key").get());
-//    ASSERT_FALSE(client->exists("/key/child").get());
-//
-//    usedKeys.insert("/key");
-//}
+TEST_F(ClientFixture, create_with_lease_test)
+{
+    auto holder = holdKeys("/key");
+    using namespace std::chrono_literals;
+
+    {
+        auto local_client = liboffkv::connect(SERVICE_ADDRESS, "/unitTests", timeMachine);
+        ASSERT_NO_THROW(local_client->create("/key", "value", true).get());
+
+        std::this_thread::sleep_for(20s);
+
+        ASSERT_TRUE(client->exists("/key").get());
+    }
+
+    std::this_thread::sleep_for(20s);
+
+    {
+        auto local_client = liboffkv::connect(SERVICE_ADDRESS, "/unitTests", timeMachine);
+        ASSERT_FALSE(client->exists("/key").get());
+    }
+}
 
 
 TEST_F(ClientFixture, get_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     ASSERT_THROW(client->get("/key").get(), liboffkv::NoEntry);
 
@@ -139,16 +119,12 @@ TEST_F(ClientFixture, get_test)
 
     ASSERT_EQ(result.value, "value");
     ASSERT_EQ(result.version, initialVersion);
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, set_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     uint64_t initialVersion = client->create("/key", "value").get().version;
     uint64_t version = client->set("/key", "newValue").get().version;
@@ -164,16 +140,12 @@ TEST_F(ClientFixture, set_test)
     ASSERT_NO_THROW(client->set("/key/child", "value").get());
 
     ASSERT_EQ(client->get("/key/child").get().value, "value");
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, get_with_watch_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     client->create("/key", "value").get();
 
@@ -193,16 +165,12 @@ TEST_F(ClientFixture, get_with_watch_test)
 
     result.watch.get();
     ASSERT_EQ(client->get("/key").get().value, "newValue");
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, cas_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     ASSERT_THROW(client->cas("/key", "value", 42u).get(), liboffkv::NoEntry);
 
@@ -231,16 +199,12 @@ TEST_F(ClientFixture, cas_test)
     ASSERT_EQ(get_result.version, cas_result.version);
     ASSERT_GT(cas_result.version, version);
     ASSERT_EQ(get_result.value, "new_value");
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, cas_zero_version_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     liboffkv::CASResult cas_result;
     liboffkv::GetResult get_result;
@@ -265,17 +229,12 @@ TEST_F(ClientFixture, cas_zero_version_test)
     ASSERT_NO_THROW({ get_result = client->get("/key").get(); });
     ASSERT_EQ(get_result.value, "value");
     ASSERT_EQ(get_result.version, version);
-
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, get_children_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     ASSERT_THROW(client->get_children("/key").get(), liboffkv::NoEntry);
 
@@ -293,17 +252,12 @@ TEST_F(ClientFixture, get_children_test)
 
     ASSERT_NO_THROW({ result = client->get_children("/key/child").get(); });
     ASSERT_TRUE(liboffkv::util::equal_as_sets(result.children, std::vector<std::string>({"/key/child/grandchild"})));
-
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, get_children_with_watch_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
+    auto holder = holdKeys("/key");
 
     client->create("/key", "value").get();
     client->create("/key/child", "value").get();
@@ -327,21 +281,12 @@ TEST_F(ClientFixture, get_children_with_watch_test)
     result.watch.get();
     ASSERT_TRUE(liboffkv::util::equal_as_sets(client->get_children("/key").get().children,
                                               std::vector<std::string>({"/key/child"})));
-
-    usedKeys.insert("/key");
 }
 
 
 TEST_F(ClientFixture, commit_test)
 {
-    try {
-        client->erase("/key").get();
-    } catch (...) {}
-
-    try {
-        client->erase("/foo").get();
-    } catch (...) {}
-
+    auto holder = holdKeys("/key", "/foo");
 
     auto key_version = client->create("/key", "value").get().version;
     auto foo_version = client->create("/foo", "value").get().version;
@@ -431,19 +376,12 @@ TEST_F(ClientFixture, commit_test)
     ASSERT_EQ(client->get("/key").get().value, "new_value");
     ASSERT_FALSE(client->exists("/foo").get());
 
-
     ASSERT_GT(result[1].version, key_version);
-
-
-    usedKeys.insert("/key");
-    usedKeys.insert("/foo");
 }
 
 TEST_F(ClientFixture, erase_prefix_test)
 {
-    try {
-        client->erase("/ichi").get();
-    } catch (...) {}
+    auto holder = holdKeys("/ichi", "/ichinichi");
 
     ASSERT_NO_THROW(client->create("/ichi",      "one").get());
     ASSERT_NO_THROW(client->create("/ichinichi", "two").get());
@@ -451,23 +389,11 @@ TEST_F(ClientFixture, erase_prefix_test)
     ASSERT_NO_THROW(client->erase("/ichi").get());
 
     ASSERT_TRUE(static_cast<bool>(client->exists("/ichinichi").get()));
-
-    usedKeys.insert("/ichinichi");
 }
 
 TEST_F(ClientFixture, get_prefix_test)
 {
-    try {
-        client->erase("/sore").get();
-    } catch (...) {}
-
-    try {
-        client->erase("/sore/ga").get();
-    } catch (...) {}
-
-    try {
-        client->erase("/sorewanan").get();
-    } catch (...) {}
+    auto holder = holdKeys("/sore", "/sorewanan");
 
     ASSERT_NO_THROW(client->create("/sore",      "1").get());
     ASSERT_NO_THROW(client->create("/sore/ga",   "2").get());
@@ -478,8 +404,4 @@ TEST_F(ClientFixture, get_prefix_test)
 
     ASSERT_EQ(res.children.size(), 1);
     ASSERT_EQ(res.children[0], "/sore/ga");
-
-    usedKeys.insert("/sore");
-    usedKeys.insert("/sore/ga");
-    usedKeys.insert("/sorewanan");
 }

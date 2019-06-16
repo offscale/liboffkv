@@ -60,7 +60,7 @@ private:
     {
         return std::async(std::launch::async, [this, key, old_version, all_with_prefix] {
             Consul client{address_};
-            Kv kv{client};
+            Kv kv{client, ppconsul::kw::consistency = CONSISTENCY};
 
             if (all_with_prefix)
                 kv.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
