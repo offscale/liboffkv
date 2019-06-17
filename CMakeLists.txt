@@ -56,6 +56,3 @@ if (BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
-
-#add_executable(test_lib src/test.cpp)
-#target_link_libraries(test_lib liboffkv)
