@@ -112,7 +112,7 @@ public:
                             auto client = std::make_shared<Consul>(address_);
                             auto sessions = std::make_shared<Sessions>(*client, ppconsul::kw::consistency = CONSISTENCY);
 
-                            session_id_ = sessions->create("", std::chrono::seconds{15},
+                            session_id_ = sessions->create("", std::chrono::seconds{0},
                                                            ppconsul::sessions::InvalidationBehavior::Delete, TTL);
 
                             session_preiodics_.emplace_back(thread_pool_->periodic(
