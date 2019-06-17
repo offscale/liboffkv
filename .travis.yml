@@ -38,7 +38,7 @@ matrix:
     #   sudo: true
     - os: windows
       env:
-        - MATRIX_EVAL="choco uninstall visualstudio2017-installer visualstudio2017buildtools mingw wsl && choco install visualstudio2019community"
+        - MATRIX_EVAL="choco uninstall -x visualstudio2017-installer visualstudio2017buildtools mingw wsl && choco install visualstudio2019community"
         - VCPKG_TRIPLET=x64-windows
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
         - SYSTEM_TRIPLET=windows
