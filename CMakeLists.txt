@@ -59,9 +59,3 @@ endif()
 
 #add_executable(test_lib src/test.cpp)
 #target_link_libraries(test_lib liboffkv)
-
-#add_executable(playground src/playground.cpp)
-#target_link_libraries(playground zkpp)
-#target_link_libraries(playground ppconsul)
-#target_link_libraries(playground etcdpp)
-#target_link_libraries(playground gRPC::gpr gRPC::grpc gRPC::grpc++ gRPC::grpc_cronet)

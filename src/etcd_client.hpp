@@ -1,9 +1,9 @@
 #pragma once
 
 #include <grpcpp/grpcpp.h>
-#include <etcdpp/kv.pb.h>
-#include <etcdpp/rpc.pb.h>
-#include <etcdpp/rpc.grpc.pb.h>
+#include <libetcd/kv.pb.h>
+#include <libetcd/rpc.pb.h>
+#include <libetcd/rpc.grpc.pb.h>
 #include <grpcpp/security/credentials.h>
 
 #include <future>
