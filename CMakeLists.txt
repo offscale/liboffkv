@@ -41,10 +41,10 @@ if (ENABLE_ZK)
 endif()
 
 if (ENABLE_ETCD)
-    find_package(etcdpp REQUIRED)
+    find_package(etcdcpp REQUIRED)
     find_package(gRPC CONFIG REQUIRED)
 
-    target_link_libraries(liboffkv INTERFACE etcdpp)
+    target_link_libraries(liboffkv INTERFACE etcdcpp)
     target_link_libraries(liboffkv INTERFACE gRPC::gpr gRPC::grpc gRPC::grpc++ gRPC::grpc_cronet)
 
     list(APPEND SERVICE_TEST_ADDRESSES "etcd://localhost:2379")
