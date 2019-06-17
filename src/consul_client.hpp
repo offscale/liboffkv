@@ -30,7 +30,7 @@ private:
 
     Consul client_;
     Kv kv_;
-    Sessions sessions_;
+    std::string session_id_;
 
     mutable std::mutex lock_;
 
@@ -69,14 +69,13 @@ private:
             else
                 kv.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
         });
-    };
+    }
 
 public:
     ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
         : Client(address, prefix, std::move(time_machine)),
           client_(address),
-          kv_(client_, ppconsul::kw::consistency = CONSISTENCY),
-          sessions_(client_, ppconsul::kw::consistency = CONSISTENCY)
+          kv_(client_, ppconsul::kw::consistency = CONSISTENCY)
     {}
 
     ConsulClient() = delete;
@@ -109,22 +108,26 @@ public:
                     ops.push_back(txn_ops::CheckNotExists{key});
 
                     if (lease) {
-                        auto id = sessions_.create("", std::chrono::seconds{15},
-                                                   ppconsul::sessions::InvalidationBehavior::Delete, TTL);
+                        if (session_id_.empty()) {
+                            auto client = std::make_shared<Consul>(address_);
+                            auto sessions = std::make_shared<Sessions>(*client, ppconsul::kw::consistency = CONSISTENCY);
 
-                        ops.push_back(txn_ops::Lock{key, value, id});
+                            session_id_ = sessions->create("", std::chrono::seconds{15},
+                                                           ppconsul::sessions::InvalidationBehavior::Delete, TTL);
 
-                        auto client = std::make_shared<Consul>(address_);
-                        auto sessions = std::make_shared<Sessions>(*client, ppconsul::kw::consistency = CONSISTENCY);
-                        session_preiodics_.emplace_back(thread_pool_->periodic(
-                            [id = std::move(id), client = std::move(client), sessions = std::move(sessions)]() mutable {
-                                try {
-                                    sessions->renew(id);
-                                    return (TTL + std::chrono::seconds(1)) / 2;
-                                } catch (... /* BadStatus& ??*/) {
-                                    return std::chrono::seconds::zero();
-                                }
-                            }, (TTL + std::chrono::seconds(1)) / 2));
+                            session_preiodics_.emplace_back(thread_pool_->periodic(
+                                [client = std::move(client), sessions = std::move(sessions), id = session_id_]() mutable
+                                {
+                                    try {
+                                        sessions->renew(id);
+                                        return (TTL + std::chrono::seconds(1)) / 2;
+                                    } catch (... /* BadStatus& ??*/) {
+                                        return std::chrono::seconds::zero();
+                                    }
+                                }, (TTL + std::chrono::seconds(1)) / 2));
+                        }
+
+                        ops.push_back(txn_ops::Lock{key, value, session_id_});
                     } else {
                         ops.push_back(txn_ops::Set{key, value});
                     }
