@@ -4,6 +4,50 @@
 
 #include "test_client_fixture.hpp"
 #include <chrono>
+#include <iostream>
+
+
+TEST_F(ClientFixture, key_validation_test)
+{
+    const auto check_key = [](const std::string &path) {
+        liboffkv::key::Key key(path);
+        key.set_prefix("");
+        static_cast<std::string>(key);
+    };
+
+    ASSERT_THROW(check_key(""),                  liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/"),                 liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("mykey"),             liboffkv::InvalidKey);
+
+    ASSERT_NO_THROW(check_key("/mykey"));
+    ASSERT_NO_THROW(check_key("/mykey/child"));
+
+    ASSERT_NO_THROW(check_key("/каша"));
+    ASSERT_NO_THROW(check_key("/κόσμε"));
+    ASSERT_NO_THROW(check_key("/�"));  // "/\xEF\xBF\xBD"
+    ASSERT_NO_THROW(check_key("/他")); // "/\xE4\xBB\x96"
+    ASSERT_NO_THROW(check_key("/𠜎")); // "/\xF0\xA0\x9C\x8E"
+
+    ASSERT_THROW(check_key("/\xC0"),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/\xC1"),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/\xFE"),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/test\xFF"), liboffkv::InvalidKey);
+
+    ASSERT_THROW(check_key(std::string("/\0\xFF",       3)), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key(std::string("/\0/",          3)), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key(std::string("/\0/zookeeper", 12)), liboffkv::InvalidKey);
+
+    ASSERT_THROW(check_key("/zookeeper"),        liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/zookeeper/child"),  liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/zookeeper/.."),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/two//three"),   liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/two/three/"),   liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/two/three/."),  liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/two/three/.."), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/./three"),      liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/../three"),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/zookeeper",     liboffkv::InvalidKey);
+}
 
 
 TEST_F(ClientFixture, create_test)
