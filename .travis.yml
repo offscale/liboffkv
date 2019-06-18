@@ -38,13 +38,13 @@ matrix:
     #   sudo: true
     - os: windows
       env:
-        - MATRIX_EVAL="choco uninstall visualstudio2017-installer visualstudio2017buildtools mingw wsl -x && choco install visualstudio2019community"
+        - MATRIX_EVAL="choco install visualstudio2019community"
         - VCPKG_TRIPLET=x64-windows
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
         - SYSTEM_TRIPLET=windows
         - PREFERED_ARCHIVE_EXTENSION=zip
         - LIBOFFKV_CMAKE_FLAGS="-DENABLE_ETCD=OFF -DENABLE_ZK=OFF"
-        - SYSTEM_CMAKE_FLAGS="-G 'Visual Studio 16 2019'"
+#        - SYSTEM_CMAKE_FLAGS="-G 'Visual Studio 16 2019'"
 
 before_install:
   - eval "${MATRIX_EVAL}"
