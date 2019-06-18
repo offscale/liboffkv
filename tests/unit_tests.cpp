@@ -4,7 +4,6 @@
 
 #include "test_client_fixture.hpp"
 #include <chrono>
-#include <iostream>
 
 
 TEST_F(ClientFixture, key_validation_test)
@@ -46,7 +45,7 @@ TEST_F(ClientFixture, key_validation_test)
     ASSERT_THROW(check_key("/one/two/three/.."), liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/one/./three"),      liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/one/../three"),     liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/one/zookeeper",     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/one/zookeeper"),    liboffkv::InvalidKey);
 }
 
 
