@@ -11,7 +11,7 @@ TEST_F(ClientFixture, key_validation_test)
     const auto check_key = [](const std::string &path) {
         liboffkv::key::Key key(path);
         key.set_prefix("");
-        static_cast<std::string>(key);
+        static_cast<void>(static_cast<std::string>(key));
     };
 
     ASSERT_THROW(check_key(""),                  liboffkv::InvalidKey);
