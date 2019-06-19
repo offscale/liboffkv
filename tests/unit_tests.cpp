@@ -55,8 +55,20 @@ TEST_F(ClientFixture, key_validation_test)
     ASSERT_THROW(check_key("/one/./three"),      liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/one/../three"),     liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/one/zookeeper"),    liboffkv::InvalidKey);
-}
 
+    // Zookeeper does not accept all these, so we need to catch it...
+
+    // Overlong sequence, 2 bytes
+    ASSERT_THROW(check_key("/key\xC0\x80"), liboffkv::InvalidKey);
+    // Overlong sequence, 3 bytes
+    ASSERT_THROW(check_key("/key\xE0\x80\x80"), liboffkv::InvalidKey);
+    // Overlong sequence, 4 bytes
+    ASSERT_THROW(check_key("/key\xF0\x80\x80\x80"), liboffkv::InvalidKey);
+    // Last valid Unicode codepoint, 0x10FFFF, is 0xDBFF 0xDFFF encoded in UTF-16
+    ASSERT_THROW(check_key("/key\xF0\xA1\xBF\xBF"), liboffkv::InvalidKey);
+    // First invalid Unicode codepoint, 0x10FFFF + 1
+    ASSERT_THROW(check_key("/key\xF0\xA2\xBF\xBF"), liboffkv::InvalidKey);
+}
 
 TEST_F(ClientFixture, create_test)
 {
