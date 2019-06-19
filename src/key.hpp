@@ -19,16 +19,14 @@ bool is_ascii(unsigned char ch)
 static inline
 unsigned bytes_number(unsigned char ch)
 {
-    switch (ch >> 3) {
-        case 0b11110:
-            return 4u;
-        case 0b1110:
-            return 3u;
-        case 0b110:
-            return 2u;
-        default:
-            return 0u;
-    }
+    auto tmp = (ch >> 3) ^ 31;
+    if (tmp == 1)
+        return 4;
+    if (tmp < 4)
+        return 3;
+    if (tmp < 8)
+        return 2;
+    return -1;
 }
 
 static inline
@@ -40,22 +38,35 @@ bool is_multibyte_symbol_part(unsigned char ch)
 static inline
 bool unicode_allowed(unsigned code)
 {
+    return !(0xD800 <= code && code <= 0xF8FF) &&
+           !(0xFFF0 <= code && code <= 0xFFFF);
+}
+
+static inline
+bool ascii_allowed(unsigned code)
+{
     return code != 0u &&
            !(0x0001 <= code && code <= 0x001F) &&
-           !(0x007F <= code && code <= 0x009F) &&
-           !(0xD800 <= code && code <= 0xF8FF) &&
-           !(0xFFF0 <= code && code <= 0xFFFF);
+           !(0x007F <= code && code <= 0x009F);
 }
 
 static
 bool verify_unit(const std::string& unit)
 {
-    auto ptr = reinterpret_cast<const unsigned char*>(unit.c_str());
-    while (*ptr) {
-        if (is_ascii(*ptr))
+    auto begin = reinterpret_cast<const unsigned char*>(unit.c_str()), ptr = begin;
+    while (ptr - begin < unit.size()) {
+        if (!*ptr)
+            return false;
+        if (is_ascii(*ptr)) {
+            if (!ascii_allowed(*ptr))
+                return false;
             ++ptr;
+        }
         else {
             auto bytes = bytes_number(*ptr);
+            if (bytes > 4)
+                return false;
+
             unsigned unicode_number = (*ptr) % (1 << static_cast<unsigned>(7 - bytes));
 
             for (unsigned i = 1; i < bytes; ++i) {
@@ -95,17 +106,22 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
         throw InvalidKey("key has to begin with '/'");
 
     auto it = ++key.begin();
-    while (it != key.end()) {
+    while (true) {
         auto end = std::find(it, key.end(), '/');
-        ans.push_back((ans.size() ? ans.back() : std::string()) + "/" + std::string(it, end));
 
-        if (!detail::verify_unit(ans.back()))
-            throw InvalidKey(std::string("entry \"") + ans.back() + "\" not allowed");
+        std::string new_unit(it, end);
+        if (!detail::verify_unit(new_unit))
+            throw InvalidKey(std::string("entry \"") + new_unit + "\" not allowed");
+
+        ans.push_back((ans.size() ? ans.back() : std::string()) + "/" + new_unit);
 
         if (end == key.end())
             break;
 
         it = ++end;
+
+        if (it == key.end())
+            throw InvalidKey("key cannot end with \"/\"");
     }
 
     return ans;
