@@ -21,29 +21,15 @@ TEST_F(ClientFixture, key_validation_test)
     ASSERT_NO_THROW(check_key("/mykey"));
     ASSERT_NO_THROW(check_key("/mykey/child"));
 
-    ASSERT_NO_THROW(check_key("/каша"));
-    ASSERT_NO_THROW(check_key("/κόσμε"));
-    ASSERT_NO_THROW(check_key("/他")); // "/\xE4\xBB\x96"
-    ASSERT_NO_THROW(check_key("/𠜎")); // "/\xF0\xA0\x9C\x8E"
-
-    ASSERT_THROW(check_key("/\xEF\xBF\xBD"), liboffkv::InvalidKey); // codepoint in forbidden range
-    ASSERT_THROW(check_key("/\xC0"),         liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/\xC1"),         liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/\xFE"),         liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/test\xFF"),     liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/test\xFF\x80\x80"), liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/test\xF8\x80\x80"), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/каша"),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/test\xFF"), liboffkv::InvalidKey);
 
     ASSERT_THROW(check_key(std::string("/test\0",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\x01", 6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\t",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\n",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\x1F", 6)), liboffkv::InvalidKey);
-    ASSERT_THROW(check_key(std::string("/test\x9F", 6)), liboffkv::InvalidKey);
-
-    ASSERT_THROW(check_key(std::string("/\0\xFF",       3)), liboffkv::InvalidKey);
-    ASSERT_THROW(check_key(std::string("/\0/",          3)), liboffkv::InvalidKey);
-    ASSERT_THROW(check_key(std::string("/\0/zookeeper", 12)), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key(std::string("/test\x7F", 6)), liboffkv::InvalidKey);
 
     ASSERT_THROW(check_key("/zookeeper"),        liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/zookeeper/child"),  liboffkv::InvalidKey);
@@ -56,18 +42,7 @@ TEST_F(ClientFixture, key_validation_test)
     ASSERT_THROW(check_key("/one/../three"),     liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/one/zookeeper"),    liboffkv::InvalidKey);
 
-    // Zookeeper does not accept all these, so we need to catch it...
-
-    // Overlong sequence, 2 bytes
-    ASSERT_THROW(check_key("/key\xC0\x80"), liboffkv::InvalidKey);
-    // Overlong sequence, 3 bytes
-    ASSERT_THROW(check_key("/key\xE0\x80\x80"), liboffkv::InvalidKey);
-    // Overlong sequence, 4 bytes
-    ASSERT_THROW(check_key("/key\xF0\x80\x80\x80"), liboffkv::InvalidKey);
-    // Last valid Unicode codepoint, 0x10FFFF, is 0xDBFF 0xDFFF encoded in UTF-16
-    ASSERT_THROW(check_key("/key\xF0\xA1\xBF\xBF"), liboffkv::InvalidKey);
-    // First invalid Unicode codepoint, 0x10FFFF + 1
-    ASSERT_THROW(check_key("/key\xF0\xA2\xBF\xBF"), liboffkv::InvalidKey);
+    ASSERT_NO_THROW(check_key("/.../.../zookeper"));
 }
 
 TEST_F(ClientFixture, create_test)

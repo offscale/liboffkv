@@ -10,81 +10,16 @@ namespace liboffkv { namespace key {
 
 namespace detail {
 
-static inline
-bool is_ascii(unsigned char ch)
-{
-    return ch < 128;
-}
-
-static inline
-unsigned bytes_number(unsigned char ch)
-{
-    auto tmp = (ch >> 3) ^ 31;
-    if (tmp == 1)
-        return 4;
-    if (tmp < 4)
-        return 3;
-    if (tmp < 8)
-        return 2;
-    return -1;
-}
-
-static inline
-bool is_multibyte_symbol_part(unsigned char ch)
-{
-    return (ch >> 6) == 0b10;
-}
-
-static inline
-bool unicode_allowed(unsigned code)
-{
-    return !(0xD800 <= code && code <= 0xF8FF) &&
-           !(0xFFF0 <= code && code <= 0xFFFF);
-}
-
-static inline
-bool ascii_allowed(unsigned code)
-{
-    return code != 0u &&
-           !(0x0001 <= code && code <= 0x001F) &&
-           !(0x007F <= code && code <= 0x009F);
-}
-
 static
-bool verify_unit(const std::string& unit)
+bool verify_segment(const std::string &seg)
 {
-    auto begin = reinterpret_cast<const unsigned char*>(unit.c_str()), ptr = begin;
-    while (ptr - begin < unit.size()) {
-        if (!*ptr)
+    for (unsigned char c : seg)
+        if (c <= 0x1F || c >= 0x7F)
             return false;
-        if (is_ascii(*ptr)) {
-            if (!ascii_allowed(*ptr))
-                return false;
-            ++ptr;
-        }
-        else {
-            auto bytes = bytes_number(*ptr);
-            if (bytes > 4)
-                return false;
 
-            unsigned unicode_number = (*ptr) % (1 << static_cast<unsigned>(7 - bytes));
-
-            for (unsigned i = 1; i < bytes; ++i) {
-                if (!ptr[i] || !is_multibyte_symbol_part(ptr[i]))
-                    return false;
-                unicode_number = (unicode_number << 6) + (ptr[i] % (1 << 6));
-            }
-
-            if (!unicode_allowed(unicode_number))
-                return false;
-
-            ptr += bytes;
-        }
-    }
-
-    return unit.size() > 0 &&
-           unit != "." && unit != ".." &&
-           unit != "zookeeper";
+    return !seg.empty() &&
+           seg != "." && seg != ".." &&
+           seg != "zookeeper";
 }
 
 } // namespace detail
@@ -105,23 +40,22 @@ std::vector<std::string> get_entry_sequence(const std::string& key)
     if (key[0] != '/')
         throw InvalidKey("key has to begin with '/'");
 
-    auto it = ++key.begin();
+    auto it = key.begin();
     while (true) {
+        ++it;
         auto end = std::find(it, key.end(), '/');
 
-        std::string new_unit(it, end);
-        if (!detail::verify_unit(new_unit))
-            throw InvalidKey(std::string("entry \"") + new_unit + "\" not allowed");
+        std::string segment(it, end);
 
-        ans.push_back((ans.size() ? ans.back() : std::string()) + "/" + new_unit);
+        if (!detail::verify_segment(segment))
+            throw InvalidKey(std::string("segment \"") + segment + "\" is invalid");
+
+        ans.emplace_back(key.begin(), end);
 
         if (end == key.end())
             break;
 
-        it = ++end;
-
-        if (it == key.end())
-            throw InvalidKey("key cannot end with \"/\"");
+        it = end;
     }
 
     return ans;
