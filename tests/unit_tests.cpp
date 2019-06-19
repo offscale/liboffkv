@@ -23,21 +23,20 @@ TEST_F(ClientFixture, key_validation_test)
 
     ASSERT_NO_THROW(check_key("/каша"));
     ASSERT_NO_THROW(check_key("/κόσμε"));
-    ASSERT_NO_THROW(check_key("/�"));  // "/\xEF\xBF\xBD"
     ASSERT_NO_THROW(check_key("/他")); // "/\xE4\xBB\x96"
     ASSERT_NO_THROW(check_key("/𠜎")); // "/\xF0\xA0\x9C\x8E"
 
-    ASSERT_THROW(check_key("/\xC0"),     liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/\xC1"),     liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/\xFE"),     liboffkv::InvalidKey);
-    ASSERT_THROW(check_key("/test\xFF"), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/\xEF\xBF\xBD"), liboffkv::InvalidKey); // codepoint in forbidden range
+    ASSERT_THROW(check_key("/\xC0"),         liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/\xC1"),         liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/\xFE"),         liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/test\xFF"),     liboffkv::InvalidKey);
 
     ASSERT_THROW(check_key(std::string("/test\0",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\x01", 6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\t",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\n",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\x1F", 6)), liboffkv::InvalidKey);
-    ASSERT_THROW(check_key(std::string("/test\x9F", 6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\x9F", 6)), liboffkv::InvalidKey);
 
     ASSERT_THROW(check_key(std::string("/\0\xFF",       3)), liboffkv::InvalidKey);
