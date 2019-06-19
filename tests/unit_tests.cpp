@@ -31,6 +31,8 @@ TEST_F(ClientFixture, key_validation_test)
     ASSERT_THROW(check_key("/\xC1"),         liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/\xFE"),         liboffkv::InvalidKey);
     ASSERT_THROW(check_key("/test\xFF"),     liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/test\xFF\x80\x80"), liboffkv::InvalidKey);
+    ASSERT_THROW(check_key("/test\xF8\x80\x80"), liboffkv::InvalidKey);
 
     ASSERT_THROW(check_key(std::string("/test\0",   6)), liboffkv::InvalidKey);
     ASSERT_THROW(check_key(std::string("/test\x01", 6)), liboffkv::InvalidKey);
