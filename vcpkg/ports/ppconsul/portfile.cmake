@@ -3,8 +3,8 @@ include(vcpkg_common_functions)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO oliora/ppconsul
-    REF 65c1399e4c965cc5df483262f826bd8660c6289e
-    SHA512 a0832aec9b6f0b90fd0e26deeb8d13e7f8a00938af57890b0868ff5852226165e861d5dfcf4ac39e39b3af32a4c1d09004d40814a02bea3ada311e2ff0e8b844
+    REF 6a1a8aa5d59e559723c91bd2eb5edf1fe7268ef9
+    SHA512 fdbe7e3a87250e7e2560968ebc5963257f877e31711651b1038ea34379329758ce1e0bfe7e10b2d08c8237e1412be469b0bdbcecaab8b61651177bcfbb49a793
     HEAD_REF master
     PATCHES "cmake_build.patch"
 )
