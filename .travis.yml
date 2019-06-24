@@ -11,7 +11,7 @@ matrix:
   include:
     - os: windows
       env:
-        - MATRIX_EVAL='choco install visualstudio2019community && VS160COMNTOOLS="C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\Tools"'
+        - MATRIX_EVAL='choco install visualstudio2019community visualstudio2019-workload-nativedesktop && VS160COMNTOOLS="C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\Tools"'
         - VCPKG_TRIPLET=x64-windows
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
         - SYSTEM_TRIPLET=windows
