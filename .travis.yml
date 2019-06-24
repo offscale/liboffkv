@@ -41,8 +41,8 @@ before_script:
 
 script:
   - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$TRAVIS_BUILD_DIR/cmake-build-debug"
-  - cmake ${SYSTEM_CMAKE_FLAGS} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ${LIBOFFKV_CMAKE_FLAGS} ..
-  - cmake --build .
+  - "${CMAKE_PATH}/cmake" ${SYSTEM_CMAKE_FLAGS} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON ${LIBOFFKV_CMAKE_FLAGS} ..
+  - "${CMAKE_PATH}/cmake" --build .
   - $TRAVIS_BUILD_DIR/travis/bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
   - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
   - $TRAVIS_BUILD_DIR/travis/bootstrap_zk.sh
