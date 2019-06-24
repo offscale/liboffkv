@@ -11,7 +11,7 @@ matrix:
   include:
     - os: windows
       env:
-        - MATRIX_EVAL="choco install visualstudio2019community"
+        - MATRIX_EVAL='choco install visualstudio2019community && VS160COMNTOOLS="C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\Tools"'
         - VCPKG_TRIPLET=x64-windows
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
         - SYSTEM_TRIPLET=windows
@@ -24,7 +24,7 @@ before_install:
   - eval "$OSX_ENABLE_GCC"
 
 before_script:
-  - $TRAVIS_BUILD_DIR/travis/export_tree.sh
+  - echo "$VS160COMNTOOLS"
   - chmod ug+x $TRAVIS_BUILD_DIR/travis/*.sh
   - $TRAVIS_BUILD_DIR/travis/prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
