@@ -17,7 +17,7 @@ matrix:
         - SYSTEM_TRIPLET=windows
         - PREFERED_ARCHIVE_EXTENSION=zip
         - LIBOFFKV_CMAKE_FLAGS="-DENABLE_ETCD=OFF -DENABLE_ZK=OFF"
-#        - SYSTEM_CMAKE_FLAGS="-G 'Visual Studio 16 2019'"
+        - SYSTEM_CMAKE_FLAGS='-G "Visual Studio 16 2019"'
 
 before_install:
   - eval "${MATRIX_EVAL}"
