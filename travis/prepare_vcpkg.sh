@@ -14,5 +14,6 @@ if [[ ! -d "$DIR" ]]; then
 	$BOOT_CODE
 else
 	cd "$DIR"
+	git reset --hard HEAD
 	git pull
 fi
