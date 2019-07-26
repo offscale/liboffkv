@@ -3,7 +3,94 @@ liboffkv
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://travis-ci.org/offscale/liboffkv.svg?branch=master)](https://travis-ci.org/offscale/liboffkv)
 
-liboffkv is a C++ library.
+#### The library is designed to provide uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul. 
+
+The services have similar but different data models, so we outlined the common features. In our implementation, keys form a zk-like hierarchy. All the operations supported are listed below.
+
+<table align="center">
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Parameters</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>create</td>
+      <td>
+      	<b>key:</b> string <i>(see key restrictions)</i><br>
+        <b>value:</b> char[]<br>
+        <b>leased:</b> bool (=false) -- <i>makes the key to be deleted on client disconnect</i>
+	  </td>
+      <td>Creates the key.<br>
+      	  Throws an exception if the key already exists or<br>
+          preceding entry does not exist.</td>
+    </tr>
+    <tr>
+    	<td>set</td>
+        <td><b>key:</b> string<br>
+        	<b>value:</b> char[]
+		</td>
+        <td>Assigns the value.<br>
+        	Creates the key if it doesn’t exist.<br>
+            Throws an exception if preceding entry does not exist.
+        </td>
+    </tr>
+    <tr>
+    	<td>cas</td>
+        <td><b>key:</b> string<br>
+        	<b>value:</b> char[]<br>
+            <b>version:</b> uint64 (=0) -- <i>expected version of the key</i>
+		</td>
+        <td>
+        	Compare and set operation.<br>
+			If the key does not exist and version equals 0 creates it.<br>
+            Throws an exception if preceding entry does not exist.<br>
+			If the key exists and its version equals to specified one updates value.
+			Otherwise does nothing.
+        </td>
+    </tr>
+    <tr>
+    	<td>get</td>
+        <td><b>key:</b> string<br>
+            <b>watch:</b> bool (=false) -- <i> start watching for change in value</i>
+        </td>
+        <td>
+        	Returns the value currently assigned to the key.<br>
+            Throws an exception if the key does not exist.<br>
+            If <b>watch</b> is true, returns a future that will be waiting till<br>
+            the value is changed (see an example below).
+        </td>
+    </tr>
+    <tr>
+    	<td>exists</td>
+        <td><b>key:</b> string<br>
+        	<b>watch:</b> bool (=false) -- <i>start watching for removal of key</i>
+        </td>
+        <td>
+        	Checks if the key exists.<br>
+            If <b>watch</b> is true, returns a future that will be waiting for the key to be erased.
+        </td>
+    </tr>
+    <tr>
+    	<td>get_children</td>
+        <td><b>key:</b> string<br>
+        	<b>watch:</b> bool (=false)<br>
+        </td>
+        <td>
+        Returns a list of the key's <u>direct</u> children.<br>
+        Throws an exception if the key does not exist.<br>
+        If <b>watch</b> is true, returns a future that will be waiting for any changes among the key's children.
+        </td>
+    </tr>
+    <tr>
+    	<td>commit</td>
+        <td><b>transaction:</b> Transaction</td>
+        <td>Commits transaction (see transactions api below).
+    </tr>
+  </tbody>
+</table>
 
 ## Supported platforms
 
