@@ -5,7 +5,7 @@ liboffkv
 
 #### The library is designed to provide a uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul.
 
-The services have similar but different data models, so we outlined the common features. In our implementation, keys form a zk-like hierarchy. All the operations supported are listed below.
+The services have similar but different data models, so we outlined the common features. In our implementation, keys form a ZK-like hierarchy. All the operations supported are listed below.
 
 <table align="center">
   <thead>
@@ -87,7 +87,7 @@ The services have similar but different data models, so we outlined the common f
     <tr>
     	<td>commit</td>
         <td><b>transaction:</b> Transaction</td>
-        <td>Commits transaction (see transactions api below).
+        <td>Commits transaction (see transactions API below).
     </tr>
   </tbody>
 </table>

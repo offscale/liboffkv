@@ -248,6 +248,7 @@ public:
 
     // No transactions. Atomicity is not necessary for linearizability here!
     // At least it seems to be so...
+    // See also TLA+ spec: https://gist.github.com/raid-7/9ad7b88cd2ec2e83f56e3b69214b6762
     std::future<SetResult> set(const std::string& key, const std::string& value) override
     {
         auto path = static_cast<std::string>(get_path_(key));
