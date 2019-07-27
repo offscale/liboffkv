@@ -3,7 +3,7 @@ liboffkv
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://travis-ci.org/offscale/liboffkv.svg?branch=master)](https://travis-ci.org/offscale/liboffkv)
 
-#### The library is designed to provide uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul. 
+#### The library is designed to provide a uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul.
 
 The services have similar but different data models, so we outlined the common features. In our implementation, keys form a zk-like hierarchy. All the operations supported are listed below.
 
@@ -19,7 +19,7 @@ The services have similar but different data models, so we outlined the common f
     <tr>
       <td>create</td>
       <td>
-      	<b>key:</b> string <i>(see key restrictions)</i><br>
+      	<b>key:</b> string<br>
         <b>value:</b> char[]<br>
         <b>leased:</b> bool (=false) -- <i>makes the key to be deleted on client disconnect</i>
 	  </td>
@@ -47,7 +47,7 @@ The services have similar but different data models, so we outlined the common f
         	Compare and set operation.<br>
 			If the key does not exist and version equals 0 creates it.<br>
             Throws an exception if preceding entry does not exist.<br>
-			If the key exists and its version equals to specified one updates value.
+			If the key exists and its version equals to specified one updates the value.
 			Otherwise does nothing.
         </td>
     </tr>
@@ -59,18 +59,18 @@ The services have similar but different data models, so we outlined the common f
         <td>
         	Returns the value currently assigned to the key.<br>
             Throws an exception if the key does not exist.<br>
-            If <b>watch</b> is true, returns a future that will be waiting till<br>
+            If <b>watch</b> is true, returns a future that will be waiting til<br>
             the value is changed (see an example below).
         </td>
     </tr>
     <tr>
     	<td>exists</td>
         <td><b>key:</b> string<br>
-        	<b>watch:</b> bool (=false) -- <i>start watching for removal of key</i>
+        	<b>watch:</b> bool (=false) -- <i>start watching for removal or creation of the key</i>
         </td>
         <td>
         	Checks if the key exists.<br>
-            If <b>watch</b> is true, returns a future that will be waiting for the key to be erased.
+            If <b>watch</b> is true, returns a future that will be waiting for the key to be erased or created.
         </td>
     </tr>
     <tr>
@@ -91,6 +91,7 @@ The services have similar but different data models, so we outlined the common f
     </tr>
   </tbody>
 </table>
+
 
 ## Supported platforms
 
