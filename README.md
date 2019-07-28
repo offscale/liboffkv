@@ -5,7 +5,11 @@ liboffkv
 
 #### The library is designed to provide a uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul.
 
-The services have similar but different data models, so we outlined the common features. In our implementation, keys form a ZK-like hierarchy. All the operations supported are listed below.
+The services have similar but different data models, so we outlined the common features. 
+
+In our implementation, keys form a ZK-like hierarchy. Each key has a version that is uint64 number greater than 0. Newly created keys have version 1. Current version is returned with other data by the most of operations. All the operations supported are listed below. 
+
+Our library has only an asynchronous interface, but if you want a synchronous one, just call `get()` on the returned futures.
 
 <table align="center">
   <thead>
@@ -33,7 +37,7 @@ The services have similar but different data models, so we outlined the common f
         	<b>value:</b> char[]
 		</td>
         <td>Assigns the value.<br>
-        	Creates the key if it doesn’t exist.<br>
+        	<u>Creates</u> the key if it doesn’t exist.<br>
             Throws an exception if preceding entry does not exist.
         </td>
     </tr>
@@ -85,9 +89,72 @@ The services have similar but different data models, so we outlined the common f
         </td>
     </tr>
     <tr>
+    	<td>erase</td>
+        <td><b>key:</b> string<br>
+        	<b>version:</b> uint64 (=0)<br>
+            <b>watch:</b> bool (=false)</td>
+    	<td>
+        Erases the key and <u>all its descendants</u> if given <b>version</b> equals to the current key's version,<br>
+        or does it unconditionally if <b>version</b> is 0.<br>
+        Throws an exception if the key does not exist.<br>
+    </tr>
+    <tr>
     	<td>commit</td>
         <td><b>transaction:</b> Transaction</td>
         <td>Commits transaction (see transactions API below).
+    </tr>
+  </tbody>
+</table>
+
+### Transactions
+Transactions consist of 4 operations: create, set, erase, check. Their descriptions can be found below. At the moment set has different behavior in comparison to ordinary set: when used in transaction, set does not create key if it does not exist. Besides using any of the operations you cannot assign watch. Transaction body is separated into two blocks: firstly you should write all required checks and then the sequence of other operations <i>(see an example below)</i>. As a result you get a list of new versions for all the keys involved in set operations.
+<table align="center">
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Parameters</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>create</td>
+      <td>
+      	<b>key:</b> string<br>
+        <b>value:</b> char[]<br>
+        <b>leased:</b> bool (=false)
+	  </td>
+      <td>Creates the key.<br>
+      	  Rolls back if the key already exists or preceding entry does not exist.<br>
+      </td>
+    </tr>
+    <tr>
+    	<td>set</td>
+        <td><b>key:</b> string<br>
+        	<b>value:</b> char[]
+		</td>
+        <td>Set the value.<br>
+        	Rolls back if the key does not exist.<br>
+            <u>n.b behaviors of transaction set and ordinary set differ</u>
+        </td>
+    </tr>
+    <tr>
+    	<td>erase</td>
+        <td><b>key:</b> string<br>
+        	<b>version:</b> uint64 (=0)<br>
+    	<td>
+        Erases the key and <u>all its descendants</u><br>
+        if given <b>version</b> equals to the current key's version,<br>
+        or does it unconditionally if <b>version</b> is 0.<br>
+        Rolls back if the key does not exist.<br>
+    </tr>
+    <tr>
+    	<td>check</td>
+        <td><b>key:</b> string<br>
+        	<b>version:</b> uint64
+        </td>
+        <td>Checks if given key has specified version<br>
+        or only checks if it exists if <b>version</b> is 0
     </tr>
   </tbody>
 </table>
