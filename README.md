@@ -159,6 +159,82 @@ Transactions consist of 4 operations: create, set, erase, check. Their descripti
   </tbody>
 </table>
 
+## Usage
+```cpp
+    #include <future>
+    #include <iostream>
+
+    #include "client.hpp"
+    #include "error.hpp"
+    #include "result.hpp"
+    
+    
+    using namespace liboffkv;
+    
+    
+    
+    int main() 
+    {
+        // firstly specify protocol (zk | consul | etcd) and address to connect to the service
+        // you can also specify a prefix all the keys will start with
+        auto client = connect("consul://127.0.0.1:8500", "/prefix");
+        
+        // each method returns a future
+        std::future<CreateResult> result = client->create("/key", "value");
+        
+        // sometimes it is returned with an exception (for more details see "src/client_interface.hpp"
+        try {
+            std::cout << "Key \"/prefix/key\" created successfully! "
+                      << "Its initial version is " << result.get().version << std::endl;
+        } catch (EntryExists&) {
+            std::cout << "Error: key \"/prefix/key\" already exists!" << std::endl;
+        }
+	
+	
+	// WATCH EXAMPLE
+	
+	std::mutex lock;
+    	lock.lock();
+	
+	// let's create a thread erasing key
+    	std::thread([this, &lock]() mutable {
+	    std::lock_guard<std::mutex> lock_guard(lock);
+	    client->erase("/key").get();
+        }).detach();
+	
+	// we call exists on newly create key "/prefix/key"
+        auto result = client->exists("/key", true).get();
+	
+	// here we allow to launch erase job
+        lock.unlock();
+
+	// result is true
+        assert(result);
+	
+	// here we wait untill "/prefix/key" is deleted
+        result.watch.get();
+	
+	// and then result is false
+        assert(!client->exists("/key").get());
+        
+	
+	// TRANSACTION EXAMPLE
+        
+        // n.b. checks and other ops are separated from each other
+        client->commit(
+            {
+                {
+                    op::Check("/key", 42u),
+                    op::Check("/foo"),
+                },
+                {
+                    op::erase("/key"),
+                    op::set("/foo", "new_value"),
+                }
+            }
+        ).get();
+    }
+```
 
 ## Supported platforms
 
@@ -234,46 +310,6 @@ The library is currently tested on
   # from liboffkv/cmake-build-debug directory
   make test
   ```
-
-## Usage
-```cpp
-    #include "client.hpp"
-    #include "error.hpp"
-    #include "result.hpp"
-    
-    
-    int main() {
-        // specify protocol (zk | consul | etcd) and address to connect to the service
-        // you can also specify a prefix all the keys will start with
-        auto client = connect("consul://127.0.0.1:8500", "/prefix");
-        
-        // each method returns a future with
-        std::future<CreateResult> result = client->create("/key", "value");
-        
-        // sometimes it is returned with an exception (for more details see "src/client_interface.hpp"
-        try {
-            std::cout << "Key \"/prefix/key\" created successfully! "
-                      << "Its initial version is " << result.get().version << std::endl;
-        } catch (EntryExists&) {
-            std::cout << "Error: key \"/prefix/key\" already exists!" << std::endl;
-        }
-        
-        
-        // commit example (n.b. checks and other ops are separated from each other)
-        client->commit(
-            {
-                {
-                    op::Check("/key", 42u),
-                    op::Check("/foo"),
-                },
-                {
-                    op::erase("/key"),
-                    op::set("/foo", "new_value"),
-                }
-            }
-        ).get();
-    }
-```
 
 ## License
 
