@@ -7,7 +7,7 @@ liboffkv
 
 The services have similar but different data models, so we outlined the common features. 
 
-In our implementation, keys form a ZK-like hierarchy. Each key has a version that is uint64 number greater than 0. Newly created keys have version 1. Current version is returned with other data by the most of operations. All the operations supported are listed below. 
+In our implementation, keys form a ZK-like hierarchy. Each key has a version that is uint64 number greater than 0. Current version is returned with other data by the most of operations. All the operations supported are listed below. 
 
 Our library has only an asynchronous interface, but if you want a synchronous one, just call `get()` on the returned futures.
 
