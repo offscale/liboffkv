@@ -1,0 +1,7 @@
+#pragma once
+
+#include "version.hpp"
+
+#cmakedefine ENABLE_ZK
+#cmakedefine ENABLE_ETCD
+#cmakedefine ENABLE_CONSUL
