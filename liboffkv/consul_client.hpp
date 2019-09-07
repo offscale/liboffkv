@@ -14,6 +14,7 @@
 #include "client.hpp"
 #include "key.hpp"
 #include "util.hpp"
+#include "ping_sender.hpp"
 
 namespace liboffkv {
 
@@ -28,6 +29,7 @@ private:
     ppconsul::kv::Kv kv_;
     std::string address_;
     std::string session_id_;
+    detail::PingSender ping_sender_;
 
     [[noreturn]] static void rethrow_(const ppconsul::Error &e)
     {
@@ -96,13 +98,11 @@ public:
         , kv_(client_, ppconsul::kw::consistency = CONSISTENCY)
         , address_{address}
         , session_id_{}
+        , ping_sender_{}
     {}
 
     int64_t create(const Key &key, const std::string &value, bool lease = false) override
     {
-        if (lease)
-            throw "TODO";
-
         std::vector<ppconsul::kv::TxnOperation> txn;
 
         const Path parent = key.parent();
@@ -113,7 +113,34 @@ public:
 
         const std::string key_string = as_path_string_(key);
         txn.push_back(ppconsul::kv::txn_ops::CheckNotExists{key_string});
-        txn.push_back(ppconsul::kv::txn_ops::Set{key_string, value});
+
+        if (lease) {
+            if (session_id_.empty()) {
+                auto client = std::make_unique<ppconsul::Consul>(address_);
+                auto sessions = std::make_unique<ppconsul::sessions::Sessions>(*client);
+
+                session_id_ = sessions->create(
+                    ppconsul::sessions::kw::lock_delay = std::chrono::seconds{0},
+                    ppconsul::sessions::kw::behavior = ppconsul::sessions::InvalidationBehavior::Delete,
+                    ppconsul::sessions::kw::ttl = TTL);
+
+                ping_sender_ = detail::PingSender(
+                    (TTL + std::chrono::seconds(1)) / 2,
+                    [client = std::move(client), sessions = std::move(sessions), id = session_id_]()
+                    {
+                        try {
+                            sessions->renew(id);
+                            return (TTL + std::chrono::seconds(1)) / 2;
+                        } catch (... /* BadStatus& ? */) {
+                            return std::chrono::seconds::zero();
+                        }
+                    }
+                );
+            }
+            txn.push_back(ppconsul::kv::txn_ops::Lock{key_string, value, session_id_});
+        } else {
+            txn.push_back(ppconsul::kv::txn_ops::Set{key_string, value});
+        }
 
         try {
             return kv_.commit(txn).back().modifyIndex;
@@ -353,7 +380,7 @@ public:
                     // EraseAll does not produce any results
 
                 } else
-                    static_assert(util::always_false<T>::value, "non-exhaustive visitor");
+                    static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
             }, op);
 
             boundaries.push_back(txn.size() - 1);

@@ -6,7 +6,7 @@
 #include <set>
 #include <type_traits>
 
-namespace liboffkv::util {
+namespace liboffkv::detail {
 
 template<class T>
 struct always_false : std::false_type {};

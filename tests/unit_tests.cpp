@@ -118,27 +118,27 @@ TEST_F(ClientFixture, exists_with_watch_test)
 }
 
 
-// TEST_F(ClientFixture, create_with_lease_test)
-// {
-//     auto holder = holdKeys("/key");
-//     using namespace std::chrono_literals;
-// 
-//     {
-//         auto local_client = liboffkv::connect(SERVICE_ADDRESS, "/unitTests", timeMachine);
-//         ASSERT_NO_THROW(local_client->create("/key", "value", true).get());
-// 
-//         std::this_thread::sleep_for(25s);
-// 
-//         ASSERT_TRUE(client->exists("/key").get());
-//     }
-// 
-//     std::this_thread::sleep_for(25s);
-// 
-//     {
-//         auto local_client = liboffkv::connect(SERVICE_ADDRESS, "/unitTests", timeMachine);
-//         ASSERT_FALSE(client->exists("/key").get());
-//     }
-// }
+TEST_F(ClientFixture, create_with_lease_test)
+{
+    auto holder = hold_keys("/key");
+    using namespace std::chrono_literals;
+
+    {
+        auto local_client = liboffkv::open(SERVICE_ADDRESS, "/unitTests");
+        ASSERT_NO_THROW(local_client->create("/key", "value", true));
+
+        std::this_thread::sleep_for(25s);
+
+        ASSERT_TRUE(client->exists("/key"));
+    }
+
+    std::this_thread::sleep_for(25s);
+
+    {
+        auto local_client = liboffkv::open(SERVICE_ADDRESS, "/unitTests");
+        ASSERT_FALSE(client->exists("/key"));
+    }
+}
 
 
 TEST_F(ClientFixture, get_test)
@@ -275,13 +275,13 @@ TEST_F(ClientFixture, get_children_test)
 
     ASSERT_NO_THROW(result = client->get_children("/key"));
 
-    ASSERT_TRUE(liboffkv::util::equal_as_unordered(
+    ASSERT_TRUE(liboffkv::detail::equal_as_unordered(
         result.children,
         {"/key/child", "/key/hackerivan"}
     ));
 
     ASSERT_NO_THROW(result = client->get_children("/key/child"));
-    ASSERT_TRUE(liboffkv::util::equal_as_unordered(
+    ASSERT_TRUE(liboffkv::detail::equal_as_unordered(
         result.children,
         {"/key/child/grandchild"}
     ));
@@ -308,7 +308,7 @@ TEST_F(ClientFixture, get_children_with_watch_test)
     auto result = client->get_children("/key", true);
     my_lock.unlock();
 
-    ASSERT_TRUE(liboffkv::util::equal_as_unordered(
+    ASSERT_TRUE(liboffkv::detail::equal_as_unordered(
         result.children,
         {"/key/child", "/key/dimak24"}
     ));
@@ -317,7 +317,7 @@ TEST_F(ClientFixture, get_children_with_watch_test)
 
     thread.join();
 
-    ASSERT_TRUE(liboffkv::util::equal_as_unordered(
+    ASSERT_TRUE(liboffkv::detail::equal_as_unordered(
         client->get_children("/key").children,
         {"/key/child"}
     ));
@@ -430,7 +430,7 @@ TEST_F(ClientFixture, get_prefix_test)
     liboffkv::ChildrenResult result;
     ASSERT_NO_THROW(result = client->get_children("/sore"));
 
-    ASSERT_TRUE(liboffkv::util::equal_as_unordered(
+    ASSERT_TRUE(liboffkv::detail::equal_as_unordered(
         client->get_children("/sore").children,
         {"/sore/ga"}
     ));

@@ -25,7 +25,7 @@ namespace liboffkv {
 
 std::unique_ptr<Client> open(std::string url, Path prefix = "")
 {
-    auto [protocol, address] = util::split_url(url);
+    auto [protocol, address] = detail::split_url(url);
 
 #ifdef ENABLE_ZK
     if (protocol == "zk")
