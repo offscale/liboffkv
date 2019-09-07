@@ -26,12 +26,12 @@ protected:
     std::string path_;
 
 public:
-    std::vector<std::string_view> segments()
+    std::vector<std::string_view> segments() const
     {
-        if (path_.empty() || path_[0] != '/')
-            throw InvalidKey{path_};
-        if (path_.size() == 1)
+        if (path_.empty())
             return {};
+        if (path_[0] != '/')
+            throw InvalidKey{path_};
         std::vector<std::string_view> result;
         auto it = path_.data(), end = it + path_.size();
         while (true) {
@@ -56,16 +56,9 @@ public:
 
     Path parent() const { return Path{path_.substr(0, path_.rfind('/'))}; }
 
-    bool root() const { return path_.size() == 1; }
+    bool root() const { return path_.empty(); }
 
-    Path operator /(const Path &that) const
-    {
-        if (root())
-            return that;
-        if (that.root())
-            return *this;
-        return Path{path_ + that.path_};
-    }
+    Path operator /(const Path &that) const { return Path{path_ + that.path_}; }
 };
 
 class Key : public Path

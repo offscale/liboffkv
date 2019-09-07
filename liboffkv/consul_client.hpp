@@ -29,15 +29,16 @@ private:
 
     [[noreturn]] static void rethrow_(const ppconsul::Error &e)
     {
-        if (auto bad_status = dynamic_cast<const ppconsul::BadStatus *>(&e))
-            throw ServiceError(bad_status->what());
+        if (dynamic_cast<const ppconsul::BadStatus *>(&e))
+            throw ServiceError(e.what());
         throw e;
     }
 
     std::string as_path_string_(const Path &path) const
     {
         std::string result;
-        for (auto segment : (prefix_ / path).segments()) {
+        const Path full_path = prefix_ / path;
+        for (auto segment : full_path.segments()) {
             if (!result.empty())
                 result += '/';
             result.append(segment);
@@ -158,13 +159,13 @@ public:
 
             std::vector<std::string> children;
             const auto nchild_prefix = child_prefix.size();
-            const auto nglobal_prefix = as_path_string_(prefix_).size();
+            const auto nglobal_prefix = as_path_string_(Path{""}).size();
             for (auto it = result.begin(), end = --result.end(); it != end; ++it)
                 if (it->key.find('/', nchild_prefix) == std::string::npos) {
-                    if (prefix_.root())
-                        children.emplace_back("/" + it->key);
-                    else
+                    if (nglobal_prefix)
                         children.emplace_back(it->key.substr(nglobal_prefix));
+                    else
+                        children.emplace_back("/" + it->key);
                 }
 
             return {std::move(children), std::move(watch_handle)};
@@ -271,7 +272,7 @@ public:
             const auto op_index = e.errors().front().opIndex;
             if (op_index == 0)
                 throw NoEntry{};
-            throw;
+            // else we don't need to throw anything
 
         } catch (const ppconsul::Error &e) {
             rethrow_(e);

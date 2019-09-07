@@ -101,15 +101,17 @@ TEST_F(ClientFixture, exists_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    std::thread([this, &my_lock]() mutable {
+    auto thread = std::thread([this, &my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->erase("/key");
-    }).detach();
+    });
 
     auto result = client->exists("/key", true);
     my_lock.unlock();
 
     ASSERT_TRUE(result);
+
+    thread.join();
 
     result.watch->wait();
     ASSERT_FALSE(client->exists("/key"));
@@ -184,10 +186,10 @@ TEST_F(ClientFixture, get_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    std::thread([this, &my_lock]() mutable {
+    auto thread = std::thread([this, &my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->set("/key", "newValue");
-    }).detach();
+    });
 
     auto result = client->get("/key", true);
     my_lock.unlock();
@@ -195,6 +197,9 @@ TEST_F(ClientFixture, get_with_watch_test)
     ASSERT_EQ(result.value, "value");
 
     result.watch->wait();
+
+    thread.join();
+
     ASSERT_EQ(client->get("/key").value, "newValue");
 }
 
@@ -295,10 +300,10 @@ TEST_F(ClientFixture, get_children_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    std::thread([this, &my_lock]() mutable {
+    auto thread = std::thread([this, &my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->erase("/key/dimak24");
-    }).detach();
+    });
 
     auto result = client->get_children("/key", true);
     my_lock.unlock();
@@ -309,6 +314,8 @@ TEST_F(ClientFixture, get_children_with_watch_test)
     ));
 
     result.watch->wait();
+
+    thread.join();
 
     ASSERT_TRUE(liboffkv::util::equal_as_unordered(
         client->get_children("/key").children,
@@ -428,7 +435,7 @@ TEST_F(ClientFixture, get_prefix_test)
     ASSERT_NO_THROW(result = client->get_children("/sore"));
 
     ASSERT_TRUE(liboffkv::util::equal_as_unordered(
-        client->get_children("/key").children,
+        client->get_children("/sore").children,
         {"/sore/ga"}
     ));
 }

@@ -23,7 +23,7 @@
 
 namespace liboffkv {
 
-std::unique_ptr<Client> open(std::string url, Path prefix = "/")
+std::unique_ptr<Client> open(std::string url, Path prefix = "")
 {
     auto [protocol, address] = util::split_url(url);
 

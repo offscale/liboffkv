@@ -8,6 +8,7 @@ option (ENABLE_ZK "Build with ZooKeeper support" OFF)
 option (ENABLE_ETCD "Build with etcd support" OFF)
 option (ENABLE_CONSUL "Build with Consul support" ON)
 option (BUILD_TESTS "Build library tests" ON)
+option (BUILD_CLIB "Build C library" OFF)
 option (BUILD_STRESS_TESTS "Build stress tests" OFF)
 
 configure_file (liboffkv/version.hpp.in generated/liboffkv/version.hpp @ONLY)
@@ -24,6 +25,11 @@ target_include_directories (liboffkv INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries (liboffkv INTERFACE ${CMAKE_THREAD_LIBS_INIT})
+
+if (BUILD_CLIB)
+    add_library (liboffkv_c SHARED liboffkv/clib.cpp)
+    target_link_libraries (liboffkv_c liboffkv)
+endif ()
 
 set (SERVICE_TEST_ADDRESSES)
 
