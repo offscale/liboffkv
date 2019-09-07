@@ -101,7 +101,7 @@ TEST_F(ClientFixture, exists_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    auto thread = std::thread([this, &my_lock]() mutable {
+    auto thread = std::thread([&my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->erase("/key");
     });
@@ -186,7 +186,7 @@ TEST_F(ClientFixture, get_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    auto thread = std::thread([this, &my_lock]() mutable {
+    auto thread = std::thread([&my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->set("/key", "newValue");
     });
@@ -300,7 +300,7 @@ TEST_F(ClientFixture, get_children_with_watch_test)
     std::mutex my_lock;
     my_lock.lock();
 
-    auto thread = std::thread([this, &my_lock]() mutable {
+    auto thread = std::thread([&my_lock]() mutable {
         std::lock_guard<std::mutex> lock_guard(my_lock);
         client->erase("/key/dimak24");
     });

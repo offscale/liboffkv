@@ -26,7 +26,7 @@ std::pair<std::string, std::string> split_url(const std::string &url)
 template<class T>
 bool equal_as_unordered(const std::vector<T> &a, const std::vector<T> &b)
 {
-    return std::multiset<T>(a.begin(), a.end()) == std::multiset(b.begin(), b.end());
+    return std::multiset<T>(a.begin(), a.end()) == std::multiset<T>(b.begin(), b.end());
 }
 
 } // namespace liboffkv::util
