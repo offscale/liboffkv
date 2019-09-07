@@ -35,6 +35,14 @@ public:
     private:
         std::string key_;
 
+        void destroy_()
+        {
+            if (!key_.empty())
+                try {
+                    client->erase(key_);
+                } catch (...) {}
+        }
+
     public:
         explicit KeyHolder(std::string key)
             : key_(std::move(key))
@@ -56,18 +64,13 @@ public:
 
         KeyHolder & operator=(KeyHolder &&that)
         {
+            destroy_();
             key_ = that.key_;
             that.key_ = "";
             return *this;
         }
 
-        ~KeyHolder()
-        {
-            if (!key_.empty())
-                try {
-                    client->erase(key_);
-                } catch (...) {}
-        }
+        ~KeyHolder() { destroy_(); }
     };
 
     template <class... Keys>

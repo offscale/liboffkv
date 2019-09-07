@@ -62,7 +62,6 @@ TEST_F(ClientFixture, exists_test)
     ASSERT_FALSE(result);
 
     auto v = client->create("/key", "value");
-    std::cout << "VERSION: " << v << std::endl;
 
     result = client->exists("/key");
     ASSERT_TRUE(result);
