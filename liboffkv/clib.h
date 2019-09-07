@@ -1,5 +1,4 @@
-#ifndef liboffkv_h_
-#define liboffkv_h_
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -7,7 +6,6 @@
 // flags
 enum {
     OFFKV_LEASE = 1 << 0,
-    OFFKV_WATCH = 1 << 1,
 };
 
 // errors
@@ -31,27 +29,20 @@ enum {
 };
 
 typedef void *offkv_Handle;
-
-// Filled and destroyed (with /offkv_exists_result_free()/) by the library.
-typedef struct {
-    int64_t version;
-    void *watch;
-} offkv_ExistsResult;
+typedef void *offkv_Watch;
 
 // Filled and destroyed (with /offkv_get_result_free()/) by the library.
 typedef struct {
     char *value;
     size_t nvalue;
     int64_t version;
-    void *watch;
 } offkv_GetResult;
 
 // Filled and destroyed (with /offkv_children_free()/) by the library.
 typedef struct {
     char **keys;
     size_t nkeys;
-    int64_t version;
-    void *watch;
+    int errcode;
 } offkv_Children;
 
 // Filled and (possibly) destroyed by user.
@@ -67,7 +58,6 @@ typedef struct {
     const char *key;
     const char *value;
     size_t nvalue;
-    int64_t version;
 } offkv_TxnOp;
 
 typedef struct {
@@ -86,9 +76,9 @@ typedef struct {
 const char *
 offkv_error_descr(int /*errcode*/);
 
-// On error, returns /NULL/ and writes to /errcode/, unless it is /NULL/.
+// On error, returns /NULL/ and writes to /p_errcode/, unless it is /NULL/.
 offkv_Handle
-offkv_open(const char * /*addr*/, const char * /*prefix*/, int * /*errcode*/);
+offkv_open(const char * /*url*/, const char * /*prefix*/, int * /*p_errcode*/);
 
 // On error, returns negative value.
 // On success, returns the version of the created node.
@@ -100,57 +90,69 @@ offkv_create(
     size_t /*nvalue*/,
     int /*flags*/);
 
+// If /p_watch/ is not NULL, a new watch is created and written into it.
+//
 // On error, returns negative value.
-// On success, returns the version of the existing node.
-offkv_ExistsResult
-offkv_exists(offkv_Handle, const char * /*key*/, int /*flags*/);
+// On success, returns the version of the existing node or 0.
+int64_t
+offkv_exists(offkv_Handle, const char * /*key*/, offkv_Watch * /*p_watch*/);
 
-// On error, returns /offkv_GetResult/ with a negative /version/ field; it should not be freed in
-// this case.
+// If /p_watch/ is not NULL, a new watch is created and written into it.
+//
+// On error, returns /offkv_GetResult/ with a negative /version/ field; it may not be freed in this
+// case.
 offkv_GetResult
-offkv_get(offkv_Handle, const char * /*key*/, int /*flags*/);
+offkv_get(offkv_Handle, const char * /*key*/, offkv_Watch * /*p_watch*/);
 
-// On error, returns /offkv_Chilren/ with a negative /version/ field; it should not be freed in this
+// If /p_watch/ is not NULL, a new watch is created and written into it.
+//
+// On error, returns /offkv_Chilren/ with a negative /errcode/ field; it may not be freed in this
 // case.
 offkv_Children
-offkv_children(offkv_Handle, const char * /*key*/, int /*flags*/);
+offkv_children(offkv_Handle, const char * /*key*/, offkv_Watch * /*p_watch*/);
 
 // On error, returns negative value.
 // On success, returns 0.
 //
-// Always consumes the watch.
+// Never consumes the watch; you still have to call /offkv_watch_drop/ on it.
 int
-offkv_watch(void * /*watch*/);
+offkv_watch(offkv_Watch /*watch*/);
 
+// Frees a watch.
 void
-offkv_watch_drop(void * /*watch*/);
+offkv_watch_drop(offkv_Watch /*watch*/);
 
 // On error, returns negative value.
 // On success, returns 0.
 int
-offkv_erase(offkv_Handle, const char * /*key*/, int64_t /*ver*/);
+offkv_erase(offkv_Handle, const char * /*key*/, int64_t /*version*/);
 
 // On error, returns negative value.
-// On success, returns the version of the node.
+// If compare-and-swap succeeded, returns the new version of the node (positive).
+// If compare-and-swap failed, returns 0.
 int64_t
-offkv_cas(offkv_Handle, const char * /*key*/, const char * /*value*/, int64_t /*ver*/);
+offkv_cas(
+    offkv_Handle,
+    const char * /*key*/,
+    const char * /*value*/,
+    size_t /*nvalue*/,
+    int64_t /*version*/);
 
-// On a non-transaction error (for example, if a key is invalid), its code is returned; contents of
-// /*out/ is undefined.
+// On a non-transaction error (for example, if a key is invalid), its code is returned and
+// /p_results/ is not written to.
 //
-// On a transaction error, /OFFKV_ETXN/ is returned and /out->failed_op/ is filled; contents of the
-// other fields of /*out/ is undefined.
+// On a transaction error, /OFFKV_ETXN/ is returned and, if /p_results/ is not NULL:
+//   1. /p_results->failed_op/ is filled with the index of the failed operation;
+//   2. /*p_results/ may not be freed.
 //
-// On success, 0 is returned and /*out/ is filled; /out->failed_op/ is set to /(size_t) -1/.
+// On success, 0 is returned and, if /p_results/ is not NULL, /*p_results/ is filled (and
+// /p_results->failed_op/ is set to /(size_t) -1/).
 int
-offkv_commit(offkv_Handle,
-             const offkv_TxnCheck * /*checks*/, size_t /*nchecks*/,
-             const offkv_TxnOp * /*ops*/, size_t /*nops*/,
-             offkv_TxnResult * /*out*/);
-
-// Frees a value returned from /offkv_exists()/.
-void
-offkv_exists_result_free(offkv_ExistsResult);
+offkv_commit(
+    offkv_Handle,
+    const offkv_TxnCheck * /*checks*/, size_t /*nchecks*/,
+    const offkv_TxnOp * /*ops*/, size_t /*nops*/,
+    offkv_TxnResult * /*p_results*/);
 
 // Frees a value returned from /offkv_get()/.
 void
@@ -167,5 +169,3 @@ offkv_txn_result_free(offkv_TxnResult);
 // Closes a handle returned from /offkv_open()/.
 void
 offkv_close(offkv_Handle);
-
-#endif

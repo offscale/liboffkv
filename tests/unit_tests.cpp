@@ -404,11 +404,7 @@ TEST_F(ClientFixture, commit_test)
     ASSERT_EQ(client->get("/key").value, "new_value");
     ASSERT_FALSE(client->exists("/foo"));
 
-    int64_t res_version = std::visit(
-        [](auto arg) { return arg.version; },
-        result.at(1)
-    );
-    ASSERT_GT(res_version, key_version);
+    ASSERT_GT(result.at(1).version, key_version);
 }
 
 TEST_F(ClientFixture, erase_prefix_test)

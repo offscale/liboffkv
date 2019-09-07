@@ -18,7 +18,7 @@ std::pair<std::string, std::string> split_url(const std::string &url)
     const auto pos = url.find(DELIM);
 
     if (pos == std::string::npos)
-        throw InvalidAddress("URL must be of 'protocol://authority' format");
+        throw InvalidAddress("URL must be of 'protocol://address' format");
 
     return {url.substr(0, pos), url.substr(pos + DELIM.size())};
 }

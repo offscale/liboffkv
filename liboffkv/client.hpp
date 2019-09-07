@@ -91,17 +91,17 @@ struct TxnOpErase
 
 using TxnOp = std::variant<TxnOpCreate, TxnOpSet, TxnOpErase>;
 
-struct TxnCreateResult
+struct TxnOpResult
 {
+    enum class Kind
+    {
+        CREATE,
+        SET,
+    };
+
+    Kind kind;
     int64_t version;
 };
-
-struct TxnSetResult
-{
-    int64_t version;
-};
-
-using TxnOpResult = std::variant<TxnCreateResult, TxnSetResult>;
 
 class Client
 {

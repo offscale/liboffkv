@@ -7,7 +7,9 @@
 #include <vector>
 #include <utility>
 #include <type_traits>
+#include <thread>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "client.hpp"
 #include "key.hpp"
@@ -37,11 +39,10 @@ private:
     std::string as_path_string_(const Path &path) const
     {
         std::string result;
-        const Path full_path = prefix_ / path;
-        for (auto segment : full_path.segments()) {
+        for (const auto &segment : (prefix_ / path).segments()) {
             if (!result.empty())
                 result += '/';
-            result.append(segment);
+            result += segment;
         }
         return result;
     }
@@ -69,10 +70,14 @@ private:
 
         void wait() override
         {
-            if (all_with_prefix_)
-                kv_.keys(key_, ppconsul::kv::kw::block_for = {WATCH_TIMEOUT, old_version_});
-            else
-                kv_.item(key_, ppconsul::kv::kw::block_for = {WATCH_TIMEOUT, old_version_});
+            try {
+                if (all_with_prefix_)
+                    kv_.keys(key_, ppconsul::kv::kw::block_for = {WATCH_TIMEOUT, old_version_});
+                else
+                    kv_.item(key_, ppconsul::kv::kw::block_for = {WATCH_TIMEOUT, old_version_});
+            } catch (const ppconsul::Error &e) {
+                rethrow_(e);
+            }
         }
     };
 
@@ -360,10 +365,16 @@ public:
             for (size_t i = 0; i < results.size(); ++i) {
                 switch (result_kinds[i]) {
                 case ResultKind::CREATE:
-                    answer.push_back(TxnCreateResult{static_cast<int64_t>(results[i].modifyIndex)});
+                    answer.push_back(TxnOpResult{
+                        TxnOpResult::Kind::CREATE,
+                        static_cast<int64_t>(results[i].modifyIndex)
+                    });
                     break;
                 case ResultKind::SET:
-                    answer.push_back(TxnSetResult{static_cast<int64_t>(results[i].modifyIndex)});
+                    answer.push_back(TxnOpResult{
+                        TxnOpResult::Kind::SET,
+                        static_cast<int64_t>(results[i].modifyIndex)
+                    });
                     break;
                 case ResultKind::AUX:
                     break;
