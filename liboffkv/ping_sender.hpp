@@ -28,10 +28,14 @@ public:
 
     void close()
     {
-        {
-            std::lock_guard<std::mutex> lock(mtx_);
-            closed_ = true;
-        }
+        std::lock_guard<std::mutex> lock(mtx_);
+        closed_ = true;
+        // https://en.cppreference.com/w/cpp/thread/condition_variable/notify_one
+        // > Notifying while under the lock may nevertheless be necessary when precise scheduling of
+        // > events is required, e.g. if the waiting thread would exit the program if the condition
+        // > is satisfied, causing destruction of the notifying thread's condition_variable. A
+        // > spurious wakeup after mutex unlock but before notify would result in notify called on a
+        // > destroyed object.
         cv_.notify_one();
     }
 };

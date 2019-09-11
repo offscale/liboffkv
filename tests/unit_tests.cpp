@@ -335,14 +335,16 @@ TEST_F(ClientFixture, commit_test)
     try {
         client->commit(
             {
-                liboffkv::TxnCheck("/key", key_version),
-                liboffkv::TxnCheck("/foo", foo_version + 1),
-                liboffkv::TxnCheck("/foo/bar", bar_version),
-            },
-            {
-                liboffkv::TxnOpCreate("/key/child", "value"),
-                liboffkv::TxnOpSet("/key", "new_value"),
-                liboffkv::TxnOpErase("/foo"),
+                {
+                    liboffkv::TxnCheck("/key", key_version),
+                    liboffkv::TxnCheck("/foo", foo_version + 1),
+                    liboffkv::TxnCheck("/foo/bar", bar_version),
+                },
+                {
+                    liboffkv::TxnOpCreate("/key/child", "value"),
+                    liboffkv::TxnOpSet("/key", "new_value"),
+                    liboffkv::TxnOpErase("/foo"),
+                }
             }
         );
         FAIL() << "Expected commit to throw TxnFailed, but it threw nothing";
@@ -360,17 +362,19 @@ TEST_F(ClientFixture, commit_test)
     try {
         client->commit(
             {
-                liboffkv::TxnCheck("/key", key_version),
-                liboffkv::TxnCheck("/foo", foo_version),
-                liboffkv::TxnCheck("/foo/bar", bar_version),
-            },
-            {
-                liboffkv::TxnOpCreate("/key/child", "value"),
-                liboffkv::TxnOpCreate("/key/hackerivan", "new_value"),
-                liboffkv::TxnOpErase("/foo"),
-                // this fails because /key/child/grandchild does not exist
-                liboffkv::TxnOpSet("/key/child/grandchild", "new_value"),
-                liboffkv::TxnOpErase("/asfdsfasdfa"),
+                {
+                    liboffkv::TxnCheck("/key", key_version),
+                    liboffkv::TxnCheck("/foo", foo_version),
+                    liboffkv::TxnCheck("/foo/bar", bar_version),
+                },
+                {
+                    liboffkv::TxnOpCreate("/key/child", "value"),
+                    liboffkv::TxnOpCreate("/key/hackerivan", "new_value"),
+                    liboffkv::TxnOpErase("/foo"),
+                    // this fails because /key/child/grandchild does not exist
+                    liboffkv::TxnOpSet("/key/child/grandchild", "new_value"),
+                    liboffkv::TxnOpErase("/asfdsfasdfa"),
+                }
             }
         );
         FAIL() << "Expected commit to throw TxnFailed, but it threw nothing";
@@ -384,18 +388,20 @@ TEST_F(ClientFixture, commit_test)
     ASSERT_TRUE(client->exists("/foo"));
 
     // everything is OK
-    std::vector<liboffkv::TxnOpResult> result;
+    liboffkv::TransactionResult result;
 
     ASSERT_NO_THROW(result = client->commit(
         {
-            liboffkv::TxnCheck("/key", key_version),
-            liboffkv::TxnCheck("/foo", foo_version),
-            liboffkv::TxnCheck("/foo/bar", bar_version),
-        },
-        {
-            liboffkv::TxnOpCreate("/key/child", "value"),
-            liboffkv::TxnOpSet("/key", "new_value"),
-            liboffkv::TxnOpErase("/foo"),
+            {
+                liboffkv::TxnCheck("/key", key_version),
+                liboffkv::TxnCheck("/foo", foo_version),
+                liboffkv::TxnCheck("/foo/bar", bar_version),
+            },
+            {
+                liboffkv::TxnOpCreate("/key/child", "value"),
+                liboffkv::TxnOpSet("/key", "new_value"),
+                liboffkv::TxnOpErase("/foo"),
+            }
         }
     ));
 

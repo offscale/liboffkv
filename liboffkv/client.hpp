@@ -106,31 +106,9 @@ struct TxnOpResult
 
 using TransactionResult = std::vector<TxnOpResult>;
 
-class Transaction {
-private:
-    std::vector<TxnCheck> checks_;
-    std::vector<TxnOp> ops_;
-
-public:
-    Transaction()
-    {}
-
-    template <typename ChecksVector, typename OpsVector>
-    Transaction(ChecksVector&& checks, OpsVector&& ops)
-    {
-        static_assert(std::is_same_v<std::vector<TxnCheck>, std::decay_t<ChecksVector>> &&
-                      std::is_same_v<std::vector<TxnOp>, std::decay_t<OpsVector>>);
-        checks_ = std::forward<ChecksVector>(checks);
-        ops_ = std::forward<OpsVector>(ops);
-    }
-
-    const std::vector<TxnCheck>& checks() & const { return checks_; }
-    std::vector<TxnCheck>& checks() & { return checks_; }
-    std::vector<TxnCheck>&& checks() && { return std::move(checks_); }
-
-    const std::vector<TxnOp>& ops() & const { return ops_; }
-    std::vector<TxnOp>& ops() & { return ops_; }
-    std::vector<TxnOp>&& ops() && { return std::move(ops_); }
+struct Transaction {
+    std::vector<TxnCheck> checks;
+    std::vector<TxnOp> ops;
 };
 
 

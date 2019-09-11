@@ -4,8 +4,8 @@ project (liboffkv VERSION 0.0.1)
 
 set (CMAKE_CXX_STANDARD 17)
 
-option (ENABLE_ZK "Build with ZooKeeper support" OFF)
-option (ENABLE_ETCD "Build with etcd support" OFF)
+option (ENABLE_ZK "Build with ZooKeeper support" ON)
+option (ENABLE_ETCD "Build with etcd support" ON)
 option (ENABLE_CONSUL "Build with Consul support" ON)
 option (BUILD_TESTS "Build library tests" ON)
 option (BUILD_CLIB "Build C library" OFF)

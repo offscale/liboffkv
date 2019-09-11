@@ -29,7 +29,7 @@ std::unique_ptr<Client> open(std::string url, Path prefix = "")
 
 #ifdef ENABLE_ZK
     if (protocol == "zk")
-        return std::make_unique<ZkClient>(std::move(address), std::move(prefix));
+        return std::make_unique<ZKClient>(std::move(url), std::move(prefix));
 #endif
 
 #ifdef ENABLE_CONSUL
@@ -39,7 +39,7 @@ std::unique_ptr<Client> open(std::string url, Path prefix = "")
 
 #ifdef ENABLE_ETCD
     if (protocol == "etcd")
-        return std::make_unique<EctdClient>(std::move(address), std::move(prefix));
+        return std::make_unique<ETCDClient>(std::move(address), std::move(prefix));
 #endif
 
     throw InvalidAddress("protocol not supported: " + protocol);

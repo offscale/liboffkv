@@ -324,7 +324,7 @@ public:
         std::vector<size_t> boundaries;
         std::vector<ResultKind> result_kinds;
 
-        for (const auto &check : transaction.checks()) {
+        for (const auto &check : transaction.checks) {
             if (check.version) {
                 txn.push_back(ppconsul::kv::txn_ops::CheckIndex{
                     as_path_string_(check.key),
@@ -339,7 +339,7 @@ public:
             boundaries.push_back(txn.size() - 1);
         }
 
-        for (const auto &op : transaction.ops()) {
+        for (const auto &op : transaction.ops) {
             std::visit([this, &txn, &result_kinds](auto &&arg) {
                 using T = std::decay_t<decltype(arg)>;
                 const std::string key_string = as_path_string_(arg.key);
