@@ -103,6 +103,37 @@ struct TxnOpResult
     int64_t version;
 };
 
+
+using TransactionResult = std::vector<TxnOpResult>;
+
+class Transaction {
+private:
+    std::vector<TxnCheck> checks_;
+    std::vector<TxnOp> ops_;
+
+public:
+    Transaction()
+    {}
+
+    template <typename ChecksVector, typename OpsVector>
+    Transaction(ChecksVector&& checks, OpsVector&& ops)
+    {
+        static_assert(std::is_same_v<std::vector<TxnCheck>, std::decay_t<ChecksVector>> &&
+                      std::is_same_v<std::vector<TxnOp>, std::decay_t<OpsVector>>);
+        checks_ = std::forward<ChecksVector>(checks);
+        ops_ = std::forward<OpsVector>(ops);
+    }
+
+    const std::vector<TxnCheck>& checks() & const { return checks_; }
+    std::vector<TxnCheck>& checks() & { return checks_; }
+    std::vector<TxnCheck>&& checks() && { return std::move(checks_); }
+
+    const std::vector<TxnOp>& ops() & const { return ops_; }
+    std::vector<TxnOp>& ops() & { return ops_; }
+    std::vector<TxnOp>&& ops() && { return std::move(ops_); }
+};
+
+
 class Client
 {
 protected:
@@ -127,10 +158,7 @@ public:
 
     virtual void erase(const Key &key, int64_t version = 0) = 0;
 
-    virtual std::vector<TxnOpResult> commit(
-        const std::vector<TxnCheck> &checks,
-        const std::vector<TxnOp> &ops)
-    = 0;
+    virtual TransactionResult commit(const Transaction&) = 0;
 
     virtual ~Client() {}
 };
