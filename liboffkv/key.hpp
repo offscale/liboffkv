@@ -60,6 +60,8 @@ public:
     Path operator /(const Path &that) const { return Path{path_ + that.path_}; }
 
     explicit operator std::string() const { return path_; }
+
+    size_t size() const { return path_.size(); }
 };
 
 class Key : public Path

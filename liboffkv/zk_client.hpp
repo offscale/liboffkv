@@ -20,33 +20,32 @@ private:
     zk::client client_;
 
     static
-    buffer from_string(const std::string& str)
+    buffer from_string_(const std::string& str)
     {
         return {str.begin(), str.end()};
     }
 
     static
-    std::string to_string(const buffer& buf)
+    std::string to_string_(const buffer& buf)
     {
         return {buf.begin(), buf.end()};
     }
 
-    void make_recursive_erase_query(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
+    void make_recursive_erase_query_(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
     {
         zk::get_children_result::children_list_type children;
         bool entry_valid = true;
         try {
             children = client_.get_children(path).get().children();
         } catch (zk::no_entry& err) {
-            if (!ignore_no_entry)
-                throw err;
+            if (!ignore_no_entry) throw NoEntry{};
             entry_valid = false;
         }
 
         if (entry_valid) {
-            for (const auto& child : children)
-                make_recursive_erase_query(query, path + '/' + child, true);
-
+            for (const auto& child : children) {
+                make_recursive_erase_query_(query, path + '/' + child, true);
+            }
             query.push_back(zk::op::erase(path));
         }
     }
@@ -103,8 +102,8 @@ public:
         : Client(std::move(prefix)), client_(zk::client::connect(address).get())
     {
         std::string entry;
-        entry.reserve(static_cast<std::string>(prefix_).size());
-        for (const auto& segment : prefix_.segments())
+        entry.reserve(prefix_.size());
+        for (const auto& segment : prefix_.segments()) {
             try {
                 client_.create(entry.append("/").append(segment), buffer()).get();
             } catch (zk::entry_exists&) {
@@ -112,6 +111,7 @@ public:
             } catch (zk::error& e) {
                 rethrow_(e);
             }
+        }
     } catch (zk::error& e) {
         rethrow_(e);
     }
@@ -122,7 +122,7 @@ public:
         try {
             client_.create(
                 as_path_string_(key),
-                from_string(value),
+                from_string_(value),
                 !lease ? zk::create_mode::normal : zk::create_mode::ephemeral
             ).get();
         } catch (zk::error& e) {
@@ -173,7 +173,7 @@ public:
         std::vector<std::string> children;
         for (const auto& child : raw_children) {
             children.emplace_back();
-            children.back().reserve(static_cast<std::string>(key).size() + static_cast<std::string>(child).size() + 1);
+            children.back().reserve(key.size() + child.size() + 1);
             children.back().append(static_cast<std::string>(key)).append("/").append(child);
         }
         return { std::move(children), std::move(watch_handle) };
@@ -186,7 +186,7 @@ public:
     int64_t set(const Key& key, const std::string& value) override
     {
         auto path = as_path_string_(key);
-        auto value_as_buffer = from_string(value);
+        auto value_as_buffer = from_string_(value);
 
         try {
             client_.create(path, value_as_buffer).get();
@@ -199,6 +199,8 @@ public:
                 // let's return some large number instead of real version
                 return static_cast<int64_t>(1) << 62;
             }
+        } catch (zk::error& e) {
+            rethrow_(e);
         }
     }
 
@@ -218,7 +220,7 @@ public:
             return {static_cast<int64_t>(
                         client_.set(
                             as_path_string_(key),
-                            from_string(value),
+                            from_string_(value),
                             zk::version(version - 1)
                         ).get().stat().data_version.value) + 1};
         } catch (zk::error& e) {
@@ -239,16 +241,20 @@ public:
         std::optional<zk::get_result> result;
         std::unique_ptr<WatchHandle> watch_handle;
 
-        if (watch) {
-            auto watch_result = client_.watch(as_path_string_(key)).get();
-            result.emplace(std::move(watch_result.initial()));
-            watch_handle = make_watch_handle_(std::move(watch_result.next()));
-        } else result.emplace(client_.get(as_path_string_(key)).get());
+        try {
+            if (watch) {
+                auto watch_result = client_.watch(as_path_string_(key)).get();
+                result.emplace(std::move(watch_result.initial()));
+                watch_handle = make_watch_handle_(std::move(watch_result.next()));
+            } else result.emplace(client_.get(as_path_string_(key)).get());
+        } catch (zk::error& e) {
+            rethrow_(e);
+        }
 
         return {
             // zk::client::get returns future with zk::no_entry the key does not exist, so checking if result.stat() has value isn't needed
             static_cast<int64_t>(result->stat().data_version.value) + 1,
-            to_string(result->data()),
+            to_string_(result->data()),
             std::move(watch_handle)
         };
     }
@@ -263,7 +269,7 @@ public:
             txn.push_back(zk::op::check(path));
             txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
 
-            make_recursive_erase_query(txn, path, false);
+            make_recursive_erase_query_(txn, path, false);
 
             try {
                 client_.commit(txn).get();
@@ -296,14 +302,14 @@ public:
                     if constexpr (std::is_same_v<T, TxnOpCreate>) {
                         txn.push_back(zk::op::create(
                             as_path_string_(arg.key),
-                            from_string(arg.value),
+                            from_string_(arg.value),
                             !arg.lease ? zk::create_mode::normal : zk::create_mode::ephemeral
                         ));
                     } else if constexpr (std::is_same_v<T, TxnOpSet>) {
                         txn.push_back(zk::op::set(as_path_string_(arg.key),
-                                                  from_string(arg.value)));
+                                                  from_string_(arg.value)));
                     } else if constexpr (std::is_same_v<T, TxnOpErase>) {
-                        make_recursive_erase_query(txn, as_path_string_(arg.key));
+                        make_recursive_erase_query_(txn, as_path_string_(arg.key));
                     } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
                 }, op);
 
@@ -322,6 +328,8 @@ public:
                 // if the failed op is a part of a complex one, repeat
                 if (boundaries[user_index] != real_index) continue;
                 else throw TxnFailed{user_index};
+            } catch (zk::error& e) {
+                rethrow_(e);
             }
 
             std::vector<TxnOpResult> result;

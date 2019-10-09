@@ -377,8 +377,7 @@ public:
                     txn.push_back(ppconsul::kv::txn_ops::EraseAll{key_string + "/"});
                     // EraseAll does not produce any results
 
-                } else
-                    static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
+                } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
             }, op);
 
             boundaries.push_back(txn.size() - 1);

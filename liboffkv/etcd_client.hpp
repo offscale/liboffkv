@@ -11,7 +11,7 @@
 
 
 #include "key.hpp"
-
+#include "ping_sender.hpp"
 
 
 namespace liboffkv {
@@ -26,13 +26,13 @@ public:
 
     struct WatchEventHandler {
         std::function<bool(const Event&)> process_event;
-        std::function<void(ServiceError)> process_failure;
+        std::function<void(const ServiceError&)> process_failure;
     };
 
 private:
-    void* tag_init_stream = reinterpret_cast<void*>(1);
-    void* tag_write_finished = reinterpret_cast<void*>(2);
-    void* tag_response_got = reinterpret_cast<void*>(3);
+    static inline void* const tag_init_stream = reinterpret_cast<void*>(1);
+    static inline void* const tag_write_finished = reinterpret_cast<void*>(2);
+    static inline void* const tag_response_got = reinterpret_cast<void*>(3);
 
     using WatchRequest = etcdserverpb::WatchRequest;
     using WatchCancelRequest = etcdserverpb::WatchCancelRequest;
@@ -40,21 +40,23 @@ private:
 
     std::mutex lock_;
 
-    std::shared_ptr<grpc::Channel> channel_;
-    std::unique_ptr <WatchEndpoint::Stub> watch_stub_;
-    std::unique_ptr <grpc::ClientContext> watch_context_;
+    std::unique_ptr<WatchEndpoint::Stub> watch_stub_;
+    grpc::ClientContext watch_context_;
+    std::shared_ptr<grpc::ClientAsyncReaderWriter<WatchRequest, WatchResponse>> watch_stream_;
+    std::unique_ptr<WatchResponse> pending_watch_response_;
+    std::map<int64_t, WatchEventHandler> watch_handlers_;
+
     grpc::CompletionQueue cq_;
 
     bool watch_resolution_thread_running_ = false;
     std::thread watch_resolution_thread_;
-    std::shared_ptr <grpc::ClientAsyncReaderWriter<WatchRequest, WatchResponse>> watch_stream_;
-    std::shared_ptr <WatchResponse> pending_watch_response_;
-    std::map <int64_t, WatchEventHandler> watch_handlers_;
 
-    std::shared_ptr <std::promise<void>> current_watch_write_;
+    std::unique_ptr<std::promise<void>> current_watch_write_;
+    std::unique_ptr<WatchEventHandler> pending_watch_handler_;
+
     std::condition_variable write_wait_cv_;
-    std::shared_ptr <WatchEventHandler> pending_watch_handler_;
     std::condition_variable create_watch_wait_cv_;
+
 
     void fail_all_watches(const ServiceError& exc)
     {
@@ -62,9 +64,8 @@ private:
 
         watch_stream_ = nullptr;
         pending_watch_response_ = nullptr;
-        for (auto& handler_pair : watch_handlers_) {
-            handler_pair.second.process_failure(exc);
-        }
+
+        for (const auto& [_, watch_handler] : watch_handlers_) watch_handler.process_failure(exc);
         watch_handlers_.clear();
 
         if (current_watch_write_) {
@@ -83,22 +84,16 @@ private:
 
     void setup_watch_infrastructure_m()
     {
-        if (watch_stream_)
-            return;
+        if (watch_stream_) return;
+        if (current_watch_write_) throw std::logic_error("Inconsistent internal state");
 
-        if (current_watch_write_)
-            throw std::logic_error("Inconsistent internal state");
-
-        current_watch_write_ =
-            std::make_shared < std::promise < void >> (); // just to slow down next write until stream init
-        watch_context_ = std::make_unique<grpc::ClientContext>();
-        watch_stream_ = watch_stub_->AsyncWatch(watch_context_.get(), &cq_, tag_init_stream);
+        // just to slow down next write until stream init
+        current_watch_write_ = std::make_unique<std::promise<void>>();
+        watch_stream_ = watch_stub_->AsyncWatch(&watch_context_, &cq_, tag_init_stream);
 
         if (!watch_resolution_thread_running_) {
             watch_resolution_thread_running_ = true;
-            watch_resolution_thread_ = std::thread([this] {
-                this->watch_resolution_loop();
-            });
+            watch_resolution_thread_ = std::thread([this] { this->watch_resolution_loop_(); });
         }
     }
 
@@ -109,7 +104,7 @@ private:
         write_wait_cv_.notify_one();
     }
 
-    void watch_resolution_loop()
+    void watch_resolution_loop_()
     {
         bool succeeded;
         void* tag;
@@ -136,20 +131,16 @@ private:
 
             if (tag == tag_response_got) {
                 // resolve response
-                auto response = pending_watch_response_;
-                pending_watch_response_ = nullptr;
-
-                if (response) {
+                if (auto* response = pending_watch_response_.release()) {
                     if (response->created()) {
                         watch_handlers_[response->watch_id()] = *pending_watch_handler_;
                         pending_watch_handler_ = nullptr;
                         create_watch_wait_cv_.notify_one();
                     }
 
-                    if (!(response->created() || response->canceled()))
-                        if (process_watch_response_m(*response)) {
-                            cancel_watch_m(response->watch_id(), lock);
-                        }
+                    if (!(response->created() || response->canceled()) && process_watch_response_m(*response)) {
+                        cancel_watch_m(response->watch_id(), lock);
+                    }
                 }
 
                 request_read_next_watch_response_m();
@@ -157,7 +148,7 @@ private:
         }
     }
 
-    void cancel_watch_m(const int64_t watch_id, std::unique_lock <std::mutex>& lock)
+    void cancel_watch_m(int64_t watch_id, std::unique_lock<std::mutex>& lock)
     {
         auto* cancel_req = new WatchCancelRequest();
         cancel_req->set_watch_id(watch_id);
@@ -168,43 +159,33 @@ private:
 
     bool process_watch_response_m(const WatchResponse& response)
     {
-        const auto& events = response.events();
+        if (!watch_handlers_.count(response.watch_id())) return true;
+        WatchEventHandler& handler = watch_handlers_[response.watch_id()];
 
-        auto handler_it = watch_handlers_.find(response.watch_id());
-        if (handler_it == watch_handlers_.end()) {
-            return true;
-        }
-        WatchEventHandler& handler = handler_it->second;
-
-        for (const Event& event : events) {
+        for (const Event& event : response.events()) {
             if (handler.process_event(event)) {
                 watch_handlers_.erase(response.watch_id());
                 return true;
             }
         }
-
         return false;
     }
 
     void request_read_next_watch_response_m()
     {
-        if (pending_watch_response_)
-            throw std::logic_error("Inconsistent internal state");
+        if (pending_watch_response_) throw std::logic_error("Inconsistent internal state");
 
-        pending_watch_response_ = std::make_shared<WatchResponse>();
+        pending_watch_response_ = std::make_unique<WatchResponse>();
         watch_stream_->Read(pending_watch_response_.get(), tag_response_got);
     }
 
-    std::future<void> write_to_watch_stream_m(const WatchRequest& request, std::unique_lock <std::mutex>& lock)
+    std::future<void> write_to_watch_stream_m(const WatchRequest& request, std::unique_lock<std::mutex>& lock)
     {
         setup_watch_infrastructure_m();
 
-        while (current_watch_write_) {
-            write_wait_cv_.wait(lock);
-        }
+        while (current_watch_write_) write_wait_cv_.wait(lock);
 
-        current_watch_write_ = std::make_shared<std::promise<void>>();
-
+        current_watch_write_ = std::make_unique<std::promise<void>>();
         watch_stream_->Write(request, tag_write_finished);
 
         return current_watch_write_->get_future();
@@ -213,7 +194,7 @@ private:
 
 public:
     ETCDWatchCreator(const std::shared_ptr<grpc::Channel>& channel)
-        : channel_(channel), watch_stub_(WatchEndpoint::NewStub(channel))
+        : watch_stub_(WatchEndpoint::NewStub(channel))
     {}
 
     void create_watch(const WatchCreateRequest& create_req, const WatchEventHandler& handler)
@@ -222,14 +203,11 @@ public:
         request.set_allocated_create_request(new WatchCreateRequest(create_req));
 
         std::future<void> watch_write_future;
-
         {
             std::unique_lock lock(lock_);
-            while (pending_watch_handler_) {
-                create_watch_wait_cv_.wait(lock);
-            }
+            while (pending_watch_handler_) create_watch_wait_cv_.wait(lock);
 
-            pending_watch_handler_ = std::make_shared<WatchEventHandler>(handler);
+            pending_watch_handler_ = std::make_unique<WatchEventHandler>(handler);
             watch_write_future = write_to_watch_stream_m(request, lock);
         }
 
@@ -241,35 +219,29 @@ public:
         bool do_join;
         {
             std::unique_lock lock(lock_);
-            if (watch_stream_) {
-                watch_context_->TryCancel();
-            }
+            if (watch_stream_) watch_context_.TryCancel();
             cq_.Shutdown();
             do_join = watch_resolution_thread_running_;
         }
-        if (do_join) {
-            watch_resolution_thread_.join();
-        }
+        if (do_join) watch_resolution_thread_.join();
     }
 };
 
 
 class LeaseIssuer {
 private:
-    static constexpr size_t LEASE_TIMEOUT = 10; // seconds
+    static inline const size_t LEASE_TIMEOUT = 10; // seconds
 
     using LeaseEndpoint = etcdserverpb::Lease;
 
-    std::atomic <int64_t> lease_id_{0};
-    std::shared_ptr <grpc::Channel> channel_;
-    std::unique_ptr <LeaseEndpoint::Stub> lease_stub_;
+    int64_t lease_id_{0};
+    std::unique_ptr<LeaseEndpoint::Stub> lease_stub_;
     detail::PingSender ping_sender_;
-    std::mutex lock_;
 
 
     void setup_lease_renewal_(int64_t lease_id, std::chrono::seconds ttl)
     {
-        std::shared_ptr<grpc::ClientContext> context_ptr;
+        auto context_ptr = std::make_shared<grpc::ClientContext>();
         auto stream = lease_stub_->LeaseKeepAlive(context_ptr.get());
 
         etcdserverpb::LeaseKeepAliveRequest req;
@@ -298,8 +270,7 @@ private:
         etcdserverpb::LeaseGrantResponse response;
         grpc::Status status = lease_stub_->LeaseGrant(&context, req, &response);
 
-        if (!status.ok())
-            throw ServiceError(status.error_message());
+        if (!status.ok()) throw ServiceError(status.error_message());
 
         setup_lease_renewal_(response.id(), std::chrono::seconds(response.ttl()));
         return response.id();
@@ -308,25 +279,13 @@ private:
 
 public:
     LeaseIssuer(const std::shared_ptr<grpc::Channel>& channel)
-        : channel_(channel), lease_stub_(LeaseEndpoint::NewStub(channel))
+        : lease_stub_(LeaseEndpoint::NewStub(channel))
     {}
 
     int64_t get_lease()
     {
-        // double checked locking
-        int64_t current = lease_id_.load(std::memory_order_relaxed);
-        if (current) {
-            return current;
-        }
-
-        std::lock_guard lock(lock_);
-        if (current = lease_id_.load(std::memory_order_relaxed)) {
-            return current;
-        }
-
-        current = create_lease_();
-        lease_id_.store(current);
-        return current;
+        if (!lease_id_) lease_id_ = create_lease_();
+        return lease_id_;
     }
 };
 
@@ -357,16 +316,16 @@ private:
     static
     void set_key_range_(Request* request, const std::variant<std::string, std::pair<std::string, std::string>>& range)
     {
-        std::visit([&request](auto&& arg) {
+        std::visit([request](auto&& arg) {
             using T = std::decay_t<decltype(arg)>;
 
             if constexpr (std::is_same_v<T, std::string>) {
                 if (arg.size()) request->set_key(arg);
-            } else /* blablabla */ {
+            } else if constexpr (std::is_same_v<T, std::pair<std::string, std::string>>) {
                 auto [begin, end] = arg;
                 request->set_key(begin);
                 request->set_range_end(end);
-            }
+            } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
         }, range);
     }
 
@@ -377,13 +336,6 @@ private:
     } status_;
 
 public:
-    ETCDTransactionBuilder()
-    {}
-
-    ~ETCDTransactionBuilder()
-    {}
-
-
     TxnRequest& get_transaction()
     {
         return txn_;
@@ -494,6 +446,8 @@ private:
 
     using RangeRequest = etcdserverpb::RangeRequest;
     using RangeResponse = etcdserverpb::RangeResponse;
+    using PutRequest = etcdserverpb::PutRequest;
+    using PutResponse = etcdserverpb::PutResponse;
     using TxnRequest = etcdserverpb::TxnRequest;
     using TxnResponse = etcdserverpb::TxnResponse;
 
@@ -504,36 +458,73 @@ private:
     ETCDWatchCreator watch_creator_;
 
 
-    const std::string unwrap_key_(const std::string& full_path) const
+    // to simplify futher search of all direct and all children, each path will be transformed in the following way:
+    // before the __last__ segment special symbol '\0' is inserted:
+    // as_path_string_("/prefix/a/b") -> "/prefix/a/\0b"
+    std::string as_path_string_(const Path &path) const
+    {
+        std::string result;
+        result.reserve(path.size() + prefix_.size() + 2);
+        result.append(static_cast<std::string>(prefix_));
+
+        if (path.root()) return result;
+
+        auto segments = path.segments();
+        for (size_t i = 0; i < segments.size() - 1; ++i) {
+            result.append("/").append(segments[i]);
+        }
+
+        return result.append("/\0", 2).append(segments.back());
+    }
+
+    auto make_subtree_range_(const Path& root)
+    {
+        auto path = static_cast<std::string>(prefix_ / root);
+
+        // key lies in the subtree iff it has form "{root}/something"
+        return std::make_pair(
+            path + '/',
+            path + static_cast<char>('/' + 1)
+        );
+    }
+
+    auto make_direct_children_range_(const Key& root)
+    {
+        auto path = static_cast<std::string>(prefix_ / root);
+
+        // if root has direct child {root}/child, then child must start with '\0', according as_path_string_ implementation
+        // oppositely, each key not being a direct child of root must not have '\0' after "{root}/"
+        return std::make_pair(
+            path + '/' + '\0',
+            path + '/' + static_cast<char>('\0' + 1)
+        );
+    }
+
+    // removes prefix and auxiliary \0
+    std::string unwrap_key_(const std::string& full_path) const
     {
         size_t pos = full_path.rfind('/');
-        auto prefix_size = as_path_string_(Path{""}).size();
-        return full_path.substr(prefix_size, pos + 1 - prefix_size) + full_path.substr(pos + 2);
+        return full_path.substr(prefix_.size(), pos + 1 - prefix_.size()) + full_path.substr(pos + 2);
     }
+
 
     TxnResponse commit_(grpc::ClientContext& context, const TxnRequest& txn)
     {
         TxnResponse response;
 
         auto status = stub_->Txn(&context, txn, &response);
-        if (!status.ok())
-            throw ServiceError(status.error_message());
+        if (!status.ok()) throw ServiceError(status.error_message());
 
         return response;
-    }
-
-    std::string as_path_string_(const Path &path) const
-    {
-        return static_cast<std::string>(prefix_ / path);
     }
 
 
     class ETCDWatchHandle_ : public WatchHandle {
     private:
-        std::future<void> future_;
+        std::shared_future<void> future_;
 
     public:
-        ETCDWatchHandle_(std::future<void>&& future)
+        ETCDWatchHandle_(std::shared_future<void>&& future)
             : future_(std::move(future))
         {}
 
@@ -550,24 +541,25 @@ private:
             EventChecker&& stop_waiting_condition
         )
     {
-        std::promise<void> promise;
+        auto promise = std::make_shared<std::promise<void>>();
         watch_creator_.create_watch(
             request,
             {
-                [&promise,
-                    foo = std::forward<EventChecker>(stop_waiting_condition)](const ETCDWatchCreator::Event& event) mutable {
+                [promise, foo = std::forward<EventChecker>(stop_waiting_condition)]
+                    (const ETCDWatchCreator::Event& event) mutable
+                {
                     if (foo(event)) {
-                        promise.set_value();
+                        promise->set_value();
                         return true;
                     }
                     return false;
                 },
-                [&promise](const ServiceError& exc)
+                [promise](const ServiceError& exc)
                 {
-                    promise.set_exception(std::make_exception_ptr(exc));
+                    promise->set_exception(std::make_exception_ptr(exc));
                 }
             });
-        return std::make_unique<ETCDWatchHandle_>(promise.get_future());
+        return std::make_unique<ETCDWatchHandle_>(promise->get_future().share());
     }
 
 
@@ -578,7 +570,20 @@ public:
           stub_(KV::NewStub(channel_)),
           watch_creator_(channel_),
           lease_issuer_(channel_)
-    {}
+    {
+        std::string entry;
+        entry.reserve(static_cast<std::string>(prefix_).size());
+        for (const auto& segment : prefix_.segments()) {
+            grpc::ClientContext context;
+
+            PutRequest request;
+            request.set_key(entry.append("/").append(segment));
+            request.set_value("kek");
+
+            PutResponse response;
+            stub_->Put(&context, request, &response);
+        }
+    }
 
 
     int64_t create(const Key& key, const std::string& value, bool lease = false) override
@@ -587,7 +592,6 @@ public:
         ETCDTransactionBuilder bldr;
 
         auto path = as_path_string_(key);
-
         bldr.add_check_exists(as_path_string_(key.parent()))
             .add_check_not_exists(path)
             // on success put value
@@ -620,8 +624,7 @@ public:
         RangeResponse response;
 
         auto status = stub_->Range(&context, request, &response);
-        if (!status.ok())
-            throw ServiceError(status.error_message());
+        if (!status.ok()) throw ServiceError(status.error_message());
 
         bool exists = response.kvs_size();
 
@@ -647,17 +650,14 @@ public:
     {
         grpc::ClientContext context;
 
-        // children range
-        auto key_begin = as_path_string_(key / std::string(1, static_cast<char>(0)));
-        auto key_end   = as_path_string_(key / std::string(1, static_cast<char>(0) + 1));
+        auto [key_begin, key_end] = make_direct_children_range_(key);
 
         ETCDTransactionBuilder bldr;
         bldr.add_check_exists(as_path_string_(key))
             .on_success().add_range_request(std::make_pair(key_begin, key_end), true, 0);
 
         TxnResponse response = commit_(context, bldr.get_transaction());
-        if (!response.succeeded())
-            throw NoEntry{};
+        if (!response.succeeded()) throw NoEntry{};
 
         std::vector<std::string> children;
         std::set<std::string> raw_keys;
@@ -740,8 +740,7 @@ public:
         TxnResponse response = commit_(context, bldr.get_transaction());
         if (!response.succeeded()) {
             auto failure_response = response.mutable_responses(0)->release_response_range();
-            if (failure_response->kvs_size())
-                return {failure_response->kvs(0).version()};
+            if (failure_response->kvs_size()) return {0};
 
             // ! throw NoEntry if version != 0 and key doesn't exist
             throw NoEntry{};
@@ -763,11 +762,9 @@ public:
         RangeResponse response;
         auto status = stub_->Range(&context, request, &response);
 
-        if (!status.ok())
-            throw ServiceError(status.error_message());
+        if (!status.ok()) throw ServiceError(status.error_message());
 
-        if (!response.kvs_size())
-            throw NoEntry{};
+        if (!response.kvs_size()) throw NoEntry{};
 
         std::unique_ptr<WatchHandle> watch_handle;
         if (watch) {
@@ -794,15 +791,13 @@ public:
         else         bldr.add_check_exists(path);
 
         bldr.on_success().add_delete_range_request(path)
-                         .add_delete_range_request(std::make_pair(
-                             as_path_string_(key / std::string(1, '/')),
-                             as_path_string_(key / std::string(1, '/' + 1))
-                         ))
+                         .add_delete_range_request(make_subtree_range_(key))
             .on_failure().add_range_request(path, true);
 
         TxnResponse response = commit_(context, bldr.get_transaction());
-        if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()->count())
+        if (!response.succeeded() && !response.mutable_responses(0)->release_response_range()->count()) {
             throw NoEntry{};
+        }
     }
 
 

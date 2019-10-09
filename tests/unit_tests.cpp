@@ -400,14 +400,14 @@ TEST_F(ClientFixture, commit_test)
             {
                 liboffkv::TxnOpCreate("/key/child", "value"),
                 liboffkv::TxnOpSet("/key", "new_value"),
-                liboffkv::TxnOpErase("/foo"),
+                liboffkv::TxnOpErase("/foo/bar"),
             }
         }
     ));
 
     ASSERT_TRUE(client->exists("/key/child"));
     ASSERT_EQ(client->get("/key").value, "new_value");
-    ASSERT_FALSE(client->exists("/foo"));
+    ASSERT_FALSE(client->exists("/foo/bar"));
 
     ASSERT_GT(result.at(1).version, key_version);
 }

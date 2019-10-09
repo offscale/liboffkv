@@ -10,10 +10,11 @@
 
 #include <liboffkv/liboffkv.hpp>
 
-class ClientFixture : public ::testing::Test
-{
+
+
+class ClientFixture : public ::testing::Test {
 public:
-    static inline std::unique_ptr<liboffkv::Client> client;
+    static inline std::unique_ptr <liboffkv::Client> client;
 
     static void SetUpTestCase()
     {
@@ -24,14 +25,17 @@ public:
         client = liboffkv::open(server_addr, "/unitTests");
     }
 
-    static void TearDownTestCase() {}
+    static void TearDownTestCase()
+    {}
 
-    void SetUp() {}
+    void SetUp()
+    {}
 
-    void TearDown() {}
+    void TearDown()
+    {}
 
-    class KeyHolder
-    {
+
+    class KeyHolder {
     private:
         std::string key_;
 
@@ -52,17 +56,17 @@ public:
             } catch (...) {}
         }
 
-        KeyHolder(const KeyHolder &) = delete;
+        KeyHolder(const KeyHolder&) = delete;
 
-        KeyHolder(KeyHolder &&that)
+        KeyHolder(KeyHolder&& that)
             : key_(that.key_)
         {
             that.key_ = "";
         }
 
-        KeyHolder & operator=(const KeyHolder &) = delete;
+        KeyHolder& operator=(const KeyHolder&) = delete;
 
-        KeyHolder & operator=(KeyHolder &&that)
+        KeyHolder& operator=(KeyHolder&& that)
         {
             destroy_();
             key_ = that.key_;
@@ -70,8 +74,10 @@ public:
             return *this;
         }
 
-        ~KeyHolder() { destroy_(); }
+        ~KeyHolder()
+        { destroy_(); }
     };
+
 
     template <class... Keys>
     static std::array<KeyHolder, sizeof...(Keys)> hold_keys(Keys&& ... keys)
