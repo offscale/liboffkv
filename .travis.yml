@@ -69,8 +69,8 @@ script:
   - $TRAVIS_BUILD_DIR/travis/bootstrap_consul.sh "$SYSTEM_TRIPLET"
   - $TRAVIS_BUILD_DIR/travis/bootstrap_zk.sh
   - ctest --verbose
-  - valgrind --error-exitcode=42 --tool=helgrind ./tests/test_zk
-  - valgrind --error-exitcode=42 --tool=helgrind ./tests/test_etcd
+#  - valgrind --error-exitcode=42 --tool=helgrind ./tests/test_zk
+#  - valgrind --error-exitcode=42 --tool=helgrind ./tests/test_etcd
 
 after_failure:
   - $TRAVIS_BUILD_DIR/travis/send_status_message.sh

@@ -65,7 +65,8 @@ private:
         watch_stream_ = nullptr;
         pending_watch_response_ = nullptr;
 
-        for (const auto& [_, watch_handler] : watch_handlers_) watch_handler.process_failure(exc);
+        for (const auto& [_, watch_handler] : watch_handlers_) (void)_, watch_handler.process_failure(exc);
+
         watch_handlers_.clear();
 
         if (current_watch_write_) {
@@ -343,10 +344,8 @@ public:
 
     ETCDTransactionBuilder& add_check_exists(const std::string& key)
     {
-        if (key.size()) {
-            auto cmp = make_compare_(key, Compare::CREATE, Compare::GREATER);
-            cmp->set_create_revision(0);
-        }
+        auto cmp = make_compare_(key, Compare::CREATE, Compare::GREATER);
+        cmp->set_create_revision(0);
 
         return *this;
     }
@@ -355,6 +354,7 @@ public:
     {
         auto cmp = make_compare_(key, Compare::CREATE, Compare::EQUAL);
         cmp->set_create_revision(0);
+
         return *this;
     }
 
@@ -454,8 +454,8 @@ private:
     std::shared_ptr<grpc::Channel> channel_;
     std::unique_ptr<KV::Stub> stub_;
 
-    LeaseIssuer lease_issuer_;
     ETCDWatchCreator watch_creator_;
+    LeaseIssuer lease_issuer_;
 
 
     // to simplify futher search of all direct and all children, each path will be transformed in the following way:
@@ -570,20 +570,7 @@ public:
           stub_(KV::NewStub(channel_)),
           watch_creator_(channel_),
           lease_issuer_(channel_)
-    {
-        std::string entry;
-        entry.reserve(static_cast<std::string>(prefix_).size());
-        for (const auto& segment : prefix_.segments()) {
-            grpc::ClientContext context;
-
-            PutRequest request;
-            request.set_key(entry.append("/").append(segment));
-            request.set_value("kek");
-
-            PutResponse response;
-            stub_->Put(&context, request, &response);
-        }
-    }
+    {}
 
 
     int64_t create(const Key& key, const std::string& value, bool lease = false) override
@@ -592,8 +579,10 @@ public:
         ETCDTransactionBuilder bldr;
 
         auto path = as_path_string_(key);
-        bldr.add_check_exists(as_path_string_(key.parent()))
-            .add_check_not_exists(path)
+
+        if (auto parent = key.parent(); !parent.root()) bldr.add_check_exists(as_path_string_(parent));
+
+        bldr.add_check_not_exists(path)
             // on success put value
             .on_success().add_put_request(path, value, lease ? lease_issuer_.get_lease() : 0)
             // on failure perform get request to determine a kind of error
@@ -693,15 +682,18 @@ public:
             grpc::ClientContext context;
             ETCDTransactionBuilder bldr;
 
-            auto parent = as_path_string_(key.parent());
+            if (auto parent = key.parent(); !parent.root()) {
+                auto path = as_path_string_(parent);
+                bldr.add_check_exists(path)
+                    .on_failure().add_range_request(path, true);
+            }
+
             auto path = as_path_string_(key);
 
-            bldr.add_check_exists(parent);
             if (!expect_lease) bldr.add_lease_compare(path, 0);
 
             bldr.on_success().add_put_request(path, value, 0, expect_lease)
-                             .add_range_request(path)
-                .on_failure().add_range_request(parent, true);
+                             .add_range_request(path);
 
             TxnResponse response = commit_(context, bldr.get_transaction());
             if (!response.succeeded()) {
@@ -805,9 +797,9 @@ public:
     {
         grpc::ClientContext context;
 
-        std::vector<int> set_indices, create_indices;
+        std::vector<size_t> set_indices, create_indices;
         std::vector<std::vector<bool>> expected_existence;
-        int _i = 0;
+        size_t total_op_number = 0;
 
         ETCDTransactionBuilder bldr;
 
@@ -818,7 +810,7 @@ public:
         }
 
         for (const auto& op : transaction.ops) {
-            std::visit([this, &expected_existence, &create_indices, &set_indices, &_i, &bldr](auto&& arg) {
+            std::visit([this, &expected_existence, &create_indices, &set_indices, &total_op_number, &bldr](auto&& arg) {
                 auto path = as_path_string_(arg.key);
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, TxnOpCreate>) {
@@ -829,13 +821,14 @@ public:
                         .on_failure().add_range_request(path, true);
                     expected_existence.back().push_back(false);
 
-                    if (auto parent = as_path_string_(arg.key.parent()); !parent.empty()) {
-                        bldr.add_check_exists(parent)
-                            .on_failure().add_range_request(parent, true);
+                    if (auto parent = arg.key.parent(); !parent.root()) {
+                        auto path = as_path_string_(parent);
+                        bldr.add_check_exists(path)
+                            .on_failure().add_range_request(path, true);
                         expected_existence.back().push_back(true);
                     }
 
-                    create_indices.push_back(_i++);
+                    create_indices.push_back(total_op_number++);
                 } else if constexpr (std::is_same_v<T, TxnOpSet>) {
                     expected_existence.emplace_back();
 
@@ -845,16 +838,16 @@ public:
                         .on_failure().add_range_request(path, true);
                     expected_existence.back().push_back(true);
 
-                    set_indices.push_back((++_i)++);
+                    set_indices.push_back((++total_op_number)++);
                 } else if constexpr (std::is_same_v<T, TxnOpErase>) {
                     expected_existence.emplace_back();
 
                     bldr.add_check_exists(path)
-                        .on_success().add_delete_range_request(path)
+                        .on_success().add_delete_range_request(make_direct_children_range_(arg.key))
                         .on_failure().add_range_request(path, true);
                     expected_existence.back().push_back(true);
 
-                    ++_i;
+                    ++total_op_number;
                 } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
             }, op);
         }
@@ -864,6 +857,7 @@ public:
         if (!response.succeeded()) {
             auto& responses = *response.mutable_responses();
 
+            // check if any check failed
             for (size_t i = 0; i < transaction.checks.size(); ++i) {
                 auto resp_i = responses[i].release_response_range();
                 if (resp_i->kvs_size() == 0 || transaction.checks[i].version != resp_i->kvs(0).version())
@@ -871,21 +865,23 @@ public:
             }
 
             size_t tr_checks_number = transaction.checks.size(), j = 0;
-            for (size_t i = 0; i < transaction.ops.size(); ++i)
+            // check if any op failed
+            for (size_t i = 0; i < transaction.ops.size(); ++i) {
                 for (bool should_exist : expected_existence[i]) {
                     if (should_exist ^ static_cast<bool>(responses[j + tr_checks_number]
-                                                                  .release_response_range()->kvs_size()))
+                                                            .release_response_range()
+                                                            ->kvs_size()))
                         throw TxnFailed{i + tr_checks_number};
                     ++j;
                 }
+            }
 
-            // not connected with logic
-            throw TxnFailed{static_cast<size_t>(-1)};
+            throw ServiceError{"we are sorry for your transaction"};
         }
 
         TransactionResult result;
 
-        int i = 0, j = 0;
+        size_t i = 0, j = 0;
         while (i < create_indices.size() && j < set_indices.size())
             if (create_indices[i] < set_indices[j]) {
                 result.push_back(TxnOpResult{TxnOpResult::Kind::CREATE, 1});

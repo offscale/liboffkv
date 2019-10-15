@@ -17,7 +17,7 @@ configure_file (liboffkv/config.hpp.in generated/liboffkv/config.hpp @ONLY)
 find_package (Threads REQUIRED)
 
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wpedantic -Wall -Wextra -Weffc++ -Wno-unused-parameter -Wno-missing-field-initializers")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wpedantic -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers")
 endif ()
 
 add_library (liboffkv INTERFACE)

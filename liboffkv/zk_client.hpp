@@ -55,7 +55,7 @@ private:
         return static_cast<std::string>(prefix_ / path);
     }
 
-    static void rethrow_(zk::error& e)
+    [[noreturn]] static void rethrow_(zk::error& e)
     {
         switch (e.code()) {
             case zk::error_code::no_entry:
@@ -322,8 +322,8 @@ public:
                 raw_result.emplace(client_.commit(txn).get());
             } catch (zk::transaction_failed& e) {
                 auto real_index = e.failed_op_index();
-                auto user_index = std::distance(boundaries.begin(),
-                                                std::lower_bound(boundaries.begin(), boundaries.end(), real_index));
+                size_t user_index = std::distance(boundaries.begin(),
+                                                  std::lower_bound(boundaries.begin(), boundaries.end(), real_index));
 
                 // if the failed op is a part of a complex one, repeat
                 if (boundaries[user_index] != real_index) continue;

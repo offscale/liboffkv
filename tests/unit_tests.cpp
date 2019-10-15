@@ -61,7 +61,7 @@ TEST_F(ClientFixture, exists_test)
     auto result = client->exists("/key");
     ASSERT_FALSE(result);
 
-    auto v = client->create("/key", "value");
+    client->create("/key", "value");
 
     result = client->exists("/key");
     ASSERT_TRUE(result);
@@ -400,7 +400,7 @@ TEST_F(ClientFixture, commit_test)
             {
                 liboffkv::TxnOpCreate("/key/child", "value"),
                 liboffkv::TxnOpSet("/key", "new_value"),
-                liboffkv::TxnOpErase("/foo/bar"),
+                liboffkv::TxnOpErase("/foo"),
             }
         }
     ));
