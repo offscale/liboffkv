@@ -299,7 +299,7 @@ offkv_commit(
                 UNREACHABLE();
             }
 
-        auto r = unwrap_client(h)->commit(checks_vec, ops_vec);
+        auto r = unwrap_client(h)->commit({checks_vec, ops_vec});
         if (p_result)
             *p_result = {dup_txn_results(r), r.size(), static_cast<size_t>(-1)};
         return 0;
