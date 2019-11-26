@@ -298,9 +298,9 @@ The library is currently tested on
 
     You can control the set of supported services with the following flags
 
-    - `-DBUILD_ZK=[ON|OFF]`
-    - `-DBUILD_ETCD=[ON|OFF]`
-    - `-DBUILD_CONSUL=[ON|OFF]`
+    - `-DENABLE_ZK=[ON|OFF]`
+    - `-DENABLE_ETCD=[ON|OFF]`
+    - `-DENABLE_CONSUL=[ON|OFF]`
 
     Sometimes you may also need to specify `VCPKG_TARGET_TRIPLET`.
 
