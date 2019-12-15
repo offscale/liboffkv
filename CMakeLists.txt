@@ -9,14 +9,14 @@ option(ENABLE_CONSUL "Build with Consul support" ON)
 option(BUILD_TESTS "Build library tests" OFF)
 option(BUILD_STRESS_TESTS "Build library tests" OFF)
 
-configure_file(lib/version.h.in generated/version.h @ONLY)
-configure_file(lib/config.h.in generated/config.h @ONLY)
+configure_file(liboffkv/version.h.in generated/version.h @ONLY)
+configure_file(liboffkv/config.h.in generated/config.h @ONLY)
 
 find_package (Threads REQUIRED)
 link_libraries(${CMAKE_THREAD_LIBS_INIT})
 
 add_library(liboffkv INTERFACE)
-target_include_directories(liboffkv INTERFACE src)
+target_include_directories(liboffkv INTERFACE liboffkv)
 target_include_directories(liboffkv INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 set(SERVICE_TEST_ADDRESSES)

@@ -182,7 +182,7 @@ Transactions consist of 4 operations: create, set, erase, check. Their descripti
         // each method returns a future
         std::future<CreateResult> result = client->create("/key", "value");
         
-        // sometimes it is returned with an exception (for more details see "src/client_interface.hpp"
+        // sometimes it is returned with an exception (for more details see "liboffkv/client_interface.hpp"
         try {
             std::cout << "Key \"/prefix/key\" created successfully! "
                       << "Its initial version is " << result.get().version << std::endl;
