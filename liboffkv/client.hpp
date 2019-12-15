@@ -1,49 +1,144 @@
 #pragma once
 
+#include <vector>
 #include <string>
-#include "config.h"
-
-#ifdef ENABLE_CONSUL
-#include "consul_client.hpp"
-#endif
-
-#ifdef ENABLE_ETCD
-#include "etcd_client.hpp"
-#endif
-
-#ifdef ENABLE_ZK
-#include "zk_client.hpp"
-#endif
-
-#include "client_interface.hpp"
-#include "error.hpp"
-#include "time_machine.hpp"
-#include "util.hpp"
-
+#include <memory>
+#include <variant>
+#include <utility>
+#include <stdint.h>
+#include "key.hpp"
 
 namespace liboffkv {
 
-std::unique_ptr<Client> connect(const std::string& address, const std::string& prefix="",
-                                std::shared_ptr<time_machine::ThreadPool<>> tm = nullptr)
+class WatchHandle
 {
-    auto [protocol, host_port] = util::get_protocol_address(address);
+public:
+    virtual void wait() = 0;
+    virtual ~WatchHandle() {}
+};
 
-#ifdef ENABLE_ZK
-    if (protocol == "zk")
-        return std::make_unique<ZKClient>(protocol + "://" + host_port, prefix, std::move(tm));
-#endif
+struct ExistsResult
+{
+    int64_t version;
+    std::unique_ptr<WatchHandle> watch;
 
-#ifdef ENABLE_CONSUL
-    if (protocol == "consul")
-        return std::make_unique<ConsulClient>(host_port, prefix, std::move(tm));
-#endif
+    operator bool() const { return version != 0; }
+};
 
-#ifdef ENABLE_ETCD
-    if (protocol == "etcd")
-        return std::make_unique<ETCDClient>(host_port, prefix, std::move(tm));
-#endif
+struct ChildrenResult
+{
+    std::vector<std::string> children;
+    std::unique_ptr<WatchHandle> watch;
+};
 
-    throw InvalidAddress(std::string("protocol \"") + protocol + "\" not allowed");
-}
+struct GetResult
+{
+    int64_t version;
+    std::string value;
+    std::unique_ptr<WatchHandle> watch;
+};
+
+struct CasResult
+{
+    int64_t version;
+
+    operator bool() const { return version != 0; }
+};
+
+struct TxnCheck
+{
+    Key key;
+    int64_t version;
+
+    TxnCheck(Key key_, int64_t version_)
+        : key(std::move(key_))
+        , version{version_}
+    {}
+};
+
+struct TxnOpCreate
+{
+    Key key;
+    std::string value;
+    bool lease;
+
+    TxnOpCreate(Key key_, std::string value_, bool lease_ = false)
+        : key(std::move(key_))
+        , value(std::move(value_))
+        , lease{lease_}
+    {}
+};
+
+struct TxnOpSet
+{
+    Key key;
+    std::string value;
+
+    TxnOpSet(Key key_, std::string value_)
+        : key(std::move(key_))
+        , value(std::move(value_))
+    {}
+};
+
+struct TxnOpErase
+{
+    Key key;
+
+    TxnOpErase(Key key_)
+        : key(std::move(key_))
+    {}
+};
+
+using TxnOp = std::variant<TxnOpCreate, TxnOpSet, TxnOpErase>;
+
+struct TxnOpResult
+{
+    enum class Kind
+    {
+        CREATE,
+        SET,
+    };
+
+    Kind kind;
+    int64_t version;
+};
+
+
+using TransactionResult = std::vector<TxnOpResult>;
+
+struct Transaction {
+    std::vector<TxnCheck> checks;
+    std::vector<TxnOp> ops;
+};
+
+
+class Client
+{
+protected:
+    Path prefix_;
+
+public:
+    Client(Path prefix)
+        : prefix_{std::move(prefix)}
+    {}
+
+    virtual int64_t create(const Key &key, const std::string &value, bool lease = false) = 0;
+
+    virtual ExistsResult exists(const Key &key, bool watch = false) = 0;
+
+    virtual ChildrenResult get_children(const Key &key, bool watch = false) = 0;
+
+    virtual int64_t set(const Key &key, const std::string &value) = 0;
+
+    virtual GetResult get(const Key &key, bool watch = false) = 0;
+
+    virtual CasResult cas(const Key &key, const std::string &value, int64_t version = 0) = 0;
+
+    virtual void erase(const Key &key, int64_t version = 0) = 0;
+
+    virtual TransactionResult commit(const Transaction&) = 0;
+
+    virtual ~Client() {}
+};
 
 } // namespace liboffkv

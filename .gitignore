@@ -1,25 +1,13 @@
-### C++ ###
-# Prerequisites
-*.d
-
 # Compiled Object files
 *.slo
 *.lo
 *.o
 *.obj
 
-# Precompiled Headers
-*.gch
-*.pch
-
 # Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
-*.mod
-*.smod
 
 # Compiled Static libraries
 *.lai
@@ -27,11 +15,11 @@
 *.a
 *.lib
 
-# Executables
-*.exe
-*.out
-*.app
-
 # IDEs
-.idea
-cmake-build-debug/
+.idea/
+
+#Build
+/cmake-build-debug/
+/cmake-build-release/
+/build/
+/generated/

@@ -1,7 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -e
 
 if [[ -z "$TELEGRAM_TOKEN" ]] || [[ -z "$TELEGRAM_CHAT" ]]; then
-	exit 1
+  echo >&2 "Either TELEGRAM_TOKEN or TELEGRAM_CHAT not set."
+  exit 1
 fi
 
 cd "$HOME"

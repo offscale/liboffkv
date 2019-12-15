@@ -1,422 +1,418 @@
 #pragma once
 
-#include <mutex>
-#include "ppconsul/consul.h"
-#include "ppconsul/kv.h"
-#include "ppconsul/sessions.h"
+#include <ppconsul/consul.h>
+#include <ppconsul/kv.h>
+#include <ppconsul/sessions.h>
+#include <string>
+#include <vector>
+#include <utility>
+#include <type_traits>
+#include <thread>
+#include <stdint.h>
+#include <stddef.h>
 
-#include "client_interface.hpp"
+#include "client.hpp"
 #include "key.hpp"
-
-
+#include "util.hpp"
+#include "ping_sender.hpp"
 
 namespace liboffkv {
 
-class ConsulClient : public Client {
+class ConsulClient : public Client
+{
 private:
-    static constexpr auto BLOCK_FOR_WHEN_WATCH = std::chrono::seconds(120);
-
+    static constexpr auto WATCH_TIMEOUT = std::chrono::seconds(120);
     static constexpr auto TTL = std::chrono::seconds(10);
-
     static constexpr auto CONSISTENCY = ppconsul::Consistency::Consistent;
 
-    using Kv = ppconsul::kv::Kv;
-    using TxnOperation = ppconsul::kv::TxnOperation;
-    using TxnAborted = ppconsul::kv::TxnAborted;
-    using Consul = ppconsul::Consul;
-    using Sessions = ppconsul::sessions::Sessions;
-
-    using Key = key::Key;
-
-    Consul client_;
-    Kv kv_;
+    ppconsul::Consul client_;
+    ppconsul::kv::Kv kv_;
+    std::string address_;
     std::string session_id_;
+    detail::PingSender ping_sender_;
 
-    mutable std::mutex lock_;
-
-    std::vector<time_machine::PeriodicRegistration> session_preiodics_;
-
-
-    const Key get_path_(const std::string& key) const
+    [[noreturn]] static void rethrow_(const ppconsul::Error &e)
     {
-        Key res = key;
-        res.set_prefix(prefix_);
-        res.set_transformer([](const std::string& prefix, const std::vector<Key>& seq) {
-            const std::string result = prefix + seq.rbegin()->get_raw_key();
-            if (!result.empty() && result[0] == '/') {
-                return result.substr(1);
+        if (dynamic_cast<const ppconsul::BadStatus *>(&e))
+            throw ServiceError(e.what());
+        throw e;
+    }
+
+    std::string as_path_string_(const Path &path) const
+    {
+        std::string result;
+        for (const auto &segment : (prefix_ / path).segments()) {
+            if (!result.empty())
+                result += '/';
+            result += segment;
+        }
+        return result;
+    }
+
+    class ConsulWatchHandle_ : public WatchHandle
+    {
+        ppconsul::Consul client_;
+        ppconsul::kv::Kv kv_;
+        std::string key_;
+        uint64_t old_version_;
+        bool all_with_prefix_;
+
+    public:
+        ConsulWatchHandle_(
+                    const std::string &address,
+                    std::string key,
+                    uint64_t old_version,
+                    bool all_with_prefix)
+            : client_(address)
+            , kv_(client_, ppconsul::kw::consistency = CONSISTENCY)
+            , key_(std::move(key))
+            , old_version_{old_version}
+            , all_with_prefix_{all_with_prefix}
+        {}
+
+        void wait() override
+        {
+            try {
+                if (all_with_prefix_)
+                    kv_.keys(key_, ppconsul::kv::kw::block_for = {WATCH_TIMEOUT, old_version_});
+                else
+                    kv_.item(key_, ppconsul::kv::kw::block_for = {WATCH_TIMEOUT, old_version_});
+            } catch (const ppconsul::Error &e) {
+                rethrow_(e);
             }
-            return result;
-        });
-        return res;
-    }
+        }
+    };
 
-    const std::string detach_prefix_(const std::string& full_path) const
+    std::unique_ptr<WatchHandle> make_watch_handle_(
+        const std::string &key,
+        uint64_t old_version,
+        bool all_with_prefix = false) const
     {
-        return full_path.substr(prefix_.size() - 1);
-    }
-
-    std::future<void> get_watch_future_(const std::string& key,
-                                        uint64_t old_version,
-                                        bool all_with_prefix = false) const
-    {
-        return std::async(std::launch::async, [this, key, old_version, all_with_prefix] {
-            Consul client{address_};
-            Kv kv{client, ppconsul::kw::consistency = CONSISTENCY};
-
-            if (all_with_prefix)
-                kv.keys(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
-            else
-                kv.item(key, ppconsul::kv::kw::block_for = {BLOCK_FOR_WHEN_WATCH, old_version});
-        });
+        return std::make_unique<ConsulWatchHandle_>(address_, key, old_version, all_with_prefix);
     }
 
 public:
-    ConsulClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client(address, prefix, std::move(time_machine)),
-          client_(address),
-          kv_(client_, ppconsul::kw::consistency = CONSISTENCY)
+    ConsulClient(const std::string &address, Path prefix)
+        : Client(std::move(prefix))
+        , client_(address)
+        , kv_(client_, ppconsul::kw::consistency = CONSISTENCY)
+        , address_{address}
+        , session_id_{}
+        , ping_sender_{}
     {}
 
-    ConsulClient() = delete;
-
-    ConsulClient(const ConsulClient&) = delete;
-
-    ConsulClient& operator=(const ConsulClient&) = delete;
-
-
-    ~ConsulClient() = default;
-
-
-    std::future<CreateResult> create(const std::string& key, const std::string& value, bool lease = false) override
+    int64_t create(const Key &key, const std::string &value, bool lease = false) override
     {
-        using namespace ppconsul::kv;
+        std::vector<ppconsul::kv::TxnOperation> txn;
 
-        return this->thread_pool_->async(
-            [this, key = get_path_(key), value, lease]() -> CreateResult {
-                std::unique_lock lock(lock_);
+        const Path parent = key.parent();
+        const bool has_parent = !parent.root();
 
-                auto parent = key.get_parent();
-                bool has_parent = (parent.size() > 0);
+        if (has_parent)
+            txn.push_back(ppconsul::kv::txn_ops::Get{as_path_string_(parent)});
 
-                try {
-                    std::vector<TxnOperation> ops;
+        const std::string key_string = as_path_string_(key);
+        txn.push_back(ppconsul::kv::txn_ops::CheckNotExists{key_string});
 
-                    if (has_parent)
-                        ops.push_back(txn_ops::Get{parent});
+        if (lease) {
+            if (session_id_.empty()) {
+                auto client = std::make_unique<ppconsul::Consul>(address_);
+                auto sessions = std::make_unique<ppconsul::sessions::Sessions>(*client);
 
-                    ops.push_back(txn_ops::CheckNotExists{key});
+                session_id_ = sessions->create(
+                    ppconsul::sessions::kw::lock_delay = std::chrono::seconds{0},
+                    ppconsul::sessions::kw::behavior = ppconsul::sessions::InvalidationBehavior::Delete,
+                    ppconsul::sessions::kw::ttl = TTL);
 
-                    if (lease) {
-                        if (session_id_.empty()) {
-                            auto client = std::make_shared<Consul>(address_);
-                            auto sessions = std::make_shared<Sessions>(*client);
-
-                            session_id_ = sessions->create(
-                                ppconsul::sessions::kw::lock_delay = std::chrono::seconds{0},
-                                ppconsul::sessions::kw::behavior = ppconsul::sessions::InvalidationBehavior::Delete,
-                                ppconsul::sessions::kw::ttl = TTL
-                            );
-
-                            session_preiodics_.emplace_back(thread_pool_->periodic(
-                                [client = std::move(client), sessions = std::move(sessions), id = session_id_]() mutable
-                                {
-                                    try {
-                                        sessions->renew(id);
-                                        return (TTL + std::chrono::seconds(1)) / 2;
-                                    } catch (... /* BadStatus& ??*/) {
-                                        return std::chrono::seconds::zero();
-                                    }
-                                }, (TTL + std::chrono::seconds(1)) / 2));
+                ping_sender_ = detail::PingSender(
+                    (TTL + std::chrono::seconds(1)) / 2,
+                    [client = std::move(client), sessions = std::move(sessions), id = session_id_]()
+                    {
+                        try {
+                            sessions->renew(id);
+                            return (TTL + std::chrono::seconds(1)) / 2;
+                        } catch (... /* BadStatus& ? */) {
+                            return std::chrono::seconds::zero();
                         }
-
-                        ops.push_back(txn_ops::Lock{key, value, session_id_});
-                    } else {
-                        ops.push_back(txn_ops::Set{key, value});
                     }
+                );
+            }
+            txn.push_back(ppconsul::kv::txn_ops::Lock{key_string, value, session_id_});
+        } else {
+            txn.push_back(ppconsul::kv::txn_ops::Set{key_string, value});
+        }
 
-                    return {kv_.commit(ops).back().modifyIndex};
+        try {
+            return kv_.commit(txn).back().modifyIndex;
 
-                } catch (TxnAborted& e) {
-                    const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
-                    if (has_parent && op_index == 0)
-                        throw NoEntry{};
-                    if (op_index == static_cast<size_t>(has_parent))
-                        throw EntryExists{};
-                    throw;
-                } liboffkv_catch
-            });
+        } catch (const ppconsul::kv::TxnAborted &e) {
+            const auto op_index = e.errors().front().opIndex;
+            if (has_parent && op_index == 0)
+                throw NoEntry{};
+            if (op_index == (has_parent ? 1 : 0))
+                throw EntryExists{};
+            throw;
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
     }
 
-    std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
+    ExistsResult exists(const Key &key, bool watch = false) override
     {
-        return this->thread_pool_->async(
-            [this, key = get_path_(key), watch]() -> ExistsResult {
-                std::unique_lock lock(lock_);
-                try {
-                    auto item = kv_.item(ppconsul::withHeaders, key);
+        const std::string key_string = as_path_string_(key);
+        try {
+            auto item = kv_.item(ppconsul::withHeaders, key_string);
+            std::unique_ptr<WatchHandle> watch_handle;
+            const int64_t version =
+                item.data().valid() ? static_cast<int64_t>(item.headers().index()) : 0;
+            if (watch)
+                watch_handle = make_watch_handle_(key_string, version);
+            return {version, std::move(watch_handle)};
 
-                    std::future<void> watch_future;
-                    if (watch)
-                        watch_future = get_watch_future_(key, item.headers().index());
-
-                    return {item.headers().index(), item.data().valid(), watch_future.share()};
-
-                } liboffkv_catch
-            });
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
     }
 
-    std::future<ChildrenResult> get_children(const std::string& key, bool watch = false) override
+    ChildrenResult get_children(const Key &key, bool watch = false) override
     {
-        using namespace ppconsul::kv;
-
-        return this->thread_pool_->async(
-            [this, key = get_path_(key), watch]() -> ChildrenResult {
-                std::unique_lock lock(lock_);
-                const auto child_prefix = static_cast<std::string>(key) + "/";
-                try {
-                    auto res = kv_.commit({
-                                              txn_ops::GetAll{child_prefix},
-                                              txn_ops::Get{key},
-                                          });
-
-                    std::future<void> watch_future;
-                    if (watch)
-                        watch_future = get_watch_future_(child_prefix, res.back().modifyIndex, true);
-
-                    return {
-                        util::map_vector(
-                            util::filter_vector(
-                                std::vector<KeyValue>(res.begin(), --res.end()),
-                                [nprefix = child_prefix.size()](const auto& key_value) {
-                                    return key_value.key.find('/', nprefix) == std::string::npos;
-                                }),
-                            [this](const auto& key_value) {
-                                return detach_prefix_(key_value.key);
-                            }),
-                        watch_future.share()
-                    };
-                } catch (TxnAborted& e) {
-                    throw NoEntry{};
-                } liboffkv_catch
+        const std::string key_string = as_path_string_(key);
+        const std::string child_prefix = key_string + "/";
+        try {
+            auto result = kv_.commit({
+                ppconsul::kv::txn_ops::GetAll{child_prefix},
+                ppconsul::kv::txn_ops::Get{key_string},
             });
-    }
 
-    std::future<SetResult> set(const std::string& key, const std::string& value) override
-    {
-        using namespace ppconsul::kv;
+            std::unique_ptr<WatchHandle> watch_handle;
+            if (watch)
+                watch_handle = make_watch_handle_(child_prefix, result.back().modifyIndex, true);
 
-        return thread_pool_->async(
-            [this, key = get_path_(key), value]() -> SetResult {
-                std::unique_lock lock(lock_);
-                try {
-                    auto parent = key.get_parent();
-
-                    std::vector<TxnOperation> ops;
-
-                    if (!parent.empty())
-                        ops.push_back(txn_ops::Get{parent});
-
-                    ops.push_back(txn_ops::Set{key, value});
-
-                    auto result = kv_.commit(ops);
-                    return {result.back().modifyIndex};
-
-                } catch (TxnAborted&) {
-                    throw NoEntry{};
-                } liboffkv_catch
-            });
-    }
-
-    std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
-    {
-        using namespace ppconsul::kv;
-
-        return this->thread_pool_->async(
-            [this, key = get_path_(key), value, version]() -> CASResult {
-                if (!version)
-                    return thread_pool_->then(
-                        create(key.get_raw_key(), value),
-                        [](std::future<CreateResult>&& result) -> CASResult {
-                            try {
-                                CreateResult unwrapped = util::call_get(std::move(result));
-                                return {unwrapped.version, true};
-                            } catch (EntryExists&) {
-                                return {0, false};
-                            }
-                        }, true).get();
-
-                try {
-                    std::unique_lock lock(lock_);
-                    auto result = kv_.commit({
-                                                 txn_ops::Get{key},
-                                                 txn_ops::CompareSet{key, static_cast<uint64_t>(version), value},
-                                             });
-                    return {result.back().modifyIndex, true};
-
-                } catch (TxnAborted& e) {
-                    const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
-                    if (op_index == 0)
-                        throw NoEntry{};
-                    return {0, false};
-                } liboffkv_catch
-            });
-    }
-
-    std::future<GetResult> get(const std::string& key, bool watch = false) override
-    {
-        return thread_pool_->async(
-            [this, key = get_path_(key), watch]() -> GetResult {
-                std::unique_lock lock(lock_);
-                try {
-                    auto item = kv_.item(ppconsul::withHeaders, key);
-                    if (!item.data().valid())
-                        throw NoEntry{};
-
-                    std::future<void> watch_future;
-                    if (watch)
-                        watch_future = get_watch_future_(key, item.headers().index());
-
-                    return {item.headers().index(), item.data().value, watch_future.share()};
-                } liboffkv_catch
-            });
-    }
-
-    std::future<void> erase(const std::string& key, uint64_t version = 0) override
-    {
-        using namespace ppconsul::kv;
-
-        return this->thread_pool_->async(
-            [this, key = get_path_(key), version] {
-                std::unique_lock lock(lock_);
-
-                std::vector<TxnOperation> ops{
-                    txn_ops::Get{key},
-                };
-                if (version) {
-                    ops.push_back(txn_ops::CompareErase{key, static_cast<uint64_t>(version)});
-                } else {
-                    ops.push_back(txn_ops::Erase{key});
-                    ops.push_back(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
+            std::vector<std::string> children;
+            const auto nchild_prefix = child_prefix.size();
+            const auto nglobal_prefix = as_path_string_(Path{""}).size();
+            for (auto it = result.begin(), end = --result.end(); it != end; ++it)
+                if (it->key.find('/', nchild_prefix) == std::string::npos) {
+                    if (nglobal_prefix)
+                        children.emplace_back(it->key.substr(nglobal_prefix));
+                    else
+                        children.emplace_back("/" + it->key);
                 }
 
-                try {
-                    kv_.commit(ops);
-                } catch (TxnAborted& e) {
-                    const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
-                    if (op_index == 0)
-                        throw NoEntry{};
-                } liboffkv_catch
-            });
+            return {std::move(children), std::move(watch_handle)};
+
+        } catch (const ppconsul::kv::TxnAborted &) {
+            throw NoEntry{};
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
     }
 
-    std::future<TransactionResult> commit(const Transaction& transaction) override
+    int64_t set(const Key &key, const std::string &value) override
     {
-        using namespace ppconsul::kv;
+        const Path parent = key.parent();
 
-        enum class ResultKind {
+        std::vector<ppconsul::kv::TxnOperation> txn;
+        if (!parent.root())
+            txn.push_back(ppconsul::kv::txn_ops::Get{as_path_string_(parent)});
+        txn.push_back(ppconsul::kv::txn_ops::Set{as_path_string_(key), value});
+
+        try {
+            auto result = kv_.commit(txn);
+            return result.back().modifyIndex;
+
+        } catch (const ppconsul::kv::TxnAborted &) {
+            throw NoEntry{};
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
+    }
+
+    GetResult get(const Key &key, bool watch = false) override
+    {
+        const std::string key_string = as_path_string_(key);
+
+        try {
+            auto item = kv_.item(ppconsul::withHeaders, key_string);
+            if (!item.data().valid())
+                throw NoEntry{};
+            const int64_t version = static_cast<int64_t>(item.headers().index());
+
+            std::unique_ptr<WatchHandle> watch_handle;
+            if (watch)
+                watch_handle = make_watch_handle_(key_string, version);
+
+            return {version, item.data().value, std::move(watch_handle)};
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
+    }
+
+    CasResult cas(const Key &key, const std::string &value, int64_t version = 0) override
+    {
+        if (!version)
+            try {
+                return {create(key, value)};
+            } catch (const EntryExists &) {
+                return {0};
+            }
+
+        const std::string key_string = as_path_string_(key);
+        try {
+            auto result = kv_.commit({
+                ppconsul::kv::txn_ops::Get{key_string},
+                ppconsul::kv::txn_ops::CompareSet{key_string, static_cast<uint64_t>(version), value},
+            });
+            return {static_cast<int64_t>(result.back().modifyIndex)};
+
+        } catch (const ppconsul::kv::TxnAborted &e) {
+            const auto op_index = e.errors().front().opIndex;
+            if (op_index == 0)
+                throw NoEntry{};
+            return {0};
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
+    }
+
+    void erase(const Key &key, int64_t version = 0) override
+    {
+        const std::string key_string = as_path_string_(key);
+
+        std::vector<ppconsul::kv::TxnOperation> txn{
+            ppconsul::kv::txn_ops::Get{key_string}
+        };
+        if (version) {
+            txn.push_back(ppconsul::kv::txn_ops::CompareErase{
+                key_string,
+                static_cast<uint64_t>(version)
+            });
+        } else {
+            txn.push_back(ppconsul::kv::txn_ops::Erase{key_string});
+            txn.push_back(ppconsul::kv::txn_ops::EraseAll{key_string + "/"});
+        }
+
+        try {
+            kv_.commit(txn);
+
+        } catch (const ppconsul::kv::TxnAborted &e) {
+            const auto op_index = e.errors().front().opIndex;
+            if (op_index == 0)
+                throw NoEntry{};
+            // else we don't need to throw anything
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
+        }
+    }
+
+    TransactionResult commit(const Transaction& transaction) override
+    {
+        enum class ResultKind
+        {
             CREATE,
             SET,
             AUX,
         };
 
-        return thread_pool_->async([this, transaction] {
-            std::unique_lock lock(lock_);
+        std::vector<ppconsul::kv::TxnOperation> txn;
+        std::vector<size_t> boundaries;
+        std::vector<ResultKind> result_kinds;
 
-            std::vector<TxnOperation> ops;
-            std::vector<size_t> boundaries;
-            std::vector<ResultKind> result_kinds;
+        for (const auto &check : transaction.checks) {
+            if (check.version) {
+                txn.push_back(ppconsul::kv::txn_ops::CheckIndex{
+                    as_path_string_(check.key),
+                    static_cast<uint64_t>(check.version)
+                });
+            } else {
+                txn.push_back(ppconsul::kv::txn_ops::Get{
+                    as_path_string_(check.key)
+                });
+            }
+            result_kinds.push_back(ResultKind::AUX);
+            boundaries.push_back(txn.size() - 1);
+        }
 
-            for (const auto& check : transaction.checks()) {
-                if (check.version)
-                    ops.push_back(txn_ops::CheckIndex{
-                        get_path_(check.key),
-                        static_cast<uint64_t>(check.version)
+        for (const auto &op : transaction.ops) {
+            std::visit([this, &txn, &result_kinds](auto &&arg) {
+                using T = std::decay_t<decltype(arg)>;
+                const std::string key_string = as_path_string_(arg.key);
+
+                if constexpr (std::is_same_v<T, TxnOpCreate>) {
+
+                    const Path parent = arg.key.parent();
+                    if (!parent.root()) {
+                        txn.push_back(ppconsul::kv::txn_ops::Get{as_path_string_(parent)});
+                        result_kinds.push_back(ResultKind::AUX);
+                    }
+
+                    txn.push_back(ppconsul::kv::txn_ops::CheckNotExists{key_string});
+                    // CheckNotExists does not produce any results
+
+                    txn.push_back(ppconsul::kv::txn_ops::Set{key_string, arg.value});
+                    result_kinds.push_back(ResultKind::CREATE);
+
+                } else if constexpr (std::is_same_v<T, TxnOpSet>) {
+
+                    txn.push_back(ppconsul::kv::txn_ops::Get{key_string});
+                    result_kinds.push_back(ResultKind::AUX);
+
+                    txn.push_back(ppconsul::kv::txn_ops::Set{key_string, arg.value});
+                    result_kinds.push_back(ResultKind::SET);
+
+                } else if constexpr (std::is_same_v<T, TxnOpErase>) {
+
+                    txn.push_back(ppconsul::kv::txn_ops::Get{key_string});
+                    result_kinds.push_back(ResultKind::AUX);
+
+                    txn.push_back(ppconsul::kv::txn_ops::Erase{key_string});
+                    // Erase does not produce any results
+
+                    txn.push_back(ppconsul::kv::txn_ops::EraseAll{key_string + "/"});
+                    // EraseAll does not produce any results
+
+                } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
+            }, op);
+
+            boundaries.push_back(txn.size() - 1);
+        }
+
+        try {
+            auto results = kv_.commit(txn);
+            std::vector<TxnOpResult> answer;
+            for (size_t i = 0; i < results.size(); ++i) {
+                switch (result_kinds[i]) {
+                case ResultKind::CREATE:
+                    answer.push_back(TxnOpResult{
+                        TxnOpResult::Kind::CREATE,
+                        static_cast<int64_t>(results[i].modifyIndex)
                     });
-                else
-                    ops.push_back(txn_ops::Get{get_path_(check.key)});
-
-                result_kinds.push_back(ResultKind::AUX);
-
-                boundaries.push_back(ops.size() - 1);
-            }
-
-            for (const auto& op_ptr : transaction.operations()) {
-                switch (op_ptr->type) {
-                    case op::op_type::CREATE: {
-                        auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
-
-                        auto key = get_path_(create_op_ptr->key);
-                        auto parent = key.get_parent();
-
-                        if (!parent.empty()) {
-                            ops.push_back(txn_ops::Get{parent});
-                            result_kinds.push_back(ResultKind::AUX);
-                        }
-
-                        ops.push_back(txn_ops::CheckNotExists{key});
-                        // txn_ops::CheckNotExists does not produce any results
-
-                        ops.push_back(txn_ops::Set{key, create_op_ptr->value});
-                        result_kinds.push_back(ResultKind::CREATE);
-
-                        break;
-                    }
-                    case op::op_type::SET: {
-                        auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
-
-                        auto key = get_path_(set_op_ptr->key);
-
-                        ops.push_back(txn_ops::Get{key});
-                        result_kinds.push_back(ResultKind::AUX);
-
-                        ops.push_back(txn_ops::Set{key, set_op_ptr->value});
-                        result_kinds.push_back(ResultKind::SET);
-
-                        break;
-                    }
-                    case op::op_type::ERASE: {
-                        auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-
-                        auto key = get_path_(op_ptr->key);
-
-                        ops.push_back(txn_ops::Get{key});
-                        result_kinds.push_back(ResultKind::AUX);
-
-                        ops.push_back(txn_ops::Erase{key});
-                        // txn_ops::Erase does not produce any results
-                        ops.push_back(txn_ops::EraseAll{static_cast<std::string>(key) + "/"});
-                        // txn_ops::EraseAll does not produce any results
-
-                        break;
-                    }
+                    break;
+                case ResultKind::SET:
+                    answer.push_back(TxnOpResult{
+                        TxnOpResult::Kind::SET,
+                        static_cast<int64_t>(results[i].modifyIndex)
+                    });
+                    break;
+                case ResultKind::AUX:
+                    break;
                 }
-
-                boundaries.push_back(ops.size() - 1);
             }
+            return answer;
 
-            try {
-                const auto results = kv_.commit(ops);
-                TransactionResult answer;
-                for (size_t i = 0; i < results.size(); ++i) {
-                    switch (result_kinds[i]) {
-                        case ResultKind::CREATE:
-                            answer.push_back(CreateResult{results[i].modifyIndex});
-                            break;
-                        case ResultKind::SET:
-                            answer.push_back(SetResult{results[i].modifyIndex});
-                            break;
-                        case ResultKind::AUX:
-                            break;
-                    }
-                }
-                return answer;
-
-            } catch (TxnAborted& e) {
-                const auto op_index = static_cast<size_t>(e.errors().front().opIndex);
-                throw TransactionFailed{util::user_op_index(boundaries, op_index)};
-            }
-        });
+        } catch (const ppconsul::kv::TxnAborted &e) {
+            const auto op_index = e.errors().front().opIndex;
+            const size_t user_op_index =
+                std::lower_bound(boundaries.begin(), boundaries.end(), op_index)
+                - boundaries.begin();
+            throw TxnFailed{user_op_index};
+        }
     }
 };
 

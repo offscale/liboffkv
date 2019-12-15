@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -e
 
 TRIPLET="$1"-amd64
 EXT=$2
@@ -18,4 +20,4 @@ rm -f "$HOME"/etcd.${EXT}
 cd "$HOME/etcd"
 
 mkdir _data
-./etcd --data-dir "$(pwd)/_data" > /dev/null &
+./etcd --data-dir "$PWD/_data" > /dev/null &

@@ -1,13 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -e
 
 TRIPLET="$1"_amd64
 EXT=zip
-curl -L https://releases.hashicorp.com/consul/1.5.1/consul_1.5.1_${TRIPLET}.${EXT} -o "$HOME"/consul.${EXT}
+curl -L https://releases.hashicorp.com/consul/1.5.1/consul_1.5.1_${TRIPLET}.${EXT} -o ~/consul.${EXT}
 
-mkdir -p "$HOME/consul"
-unzip -q "$HOME"/consul.${EXT} -d "$HOME/consul"
+mkdir -p ~/consul
+unzip -q ~/consul.${EXT} -d ~/consul
 
-rm -f "$HOME"/consul.${EXT}
-cd "$HOME/consul"
+rm -f ~/consul.${EXT}
+cd ~/consul
 
 ./consul agent -dev > /dev/null &

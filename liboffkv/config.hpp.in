@@ -1,10 +1,7 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+#pragma once
 
-#include <version.h>
+#include "version.hpp"
 
 #cmakedefine ENABLE_ZK
 #cmakedefine ENABLE_ETCD
 #cmakedefine ENABLE_CONSUL
-
-#endif

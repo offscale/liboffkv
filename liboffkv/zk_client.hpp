@@ -6,9 +6,7 @@
 #include <zk/types.hpp>
 
 
-#include "client_interface.hpp"
-#include "time_machine.hpp"
-#include "util.hpp"
+#include "client.hpp"
 #include "key.hpp"
 
 
@@ -19,425 +17,344 @@ class ZKClient : public Client {
 private:
     using buffer = zk::buffer;
 
-    using Key = key::Key;
-
     zk::client client_;
 
     static
-    buffer from_string(const std::string& str)
+    buffer from_string_(const std::string& str)
     {
         return {str.begin(), str.end()};
     }
 
     static
-    std::string to_string(const buffer& buf)
+    std::string to_string_(const buffer& buf)
     {
         return {buf.begin(), buf.end()};
     }
 
-    void make_recursive_erase_query(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
+    void make_recursive_erase_query_(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
     {
         zk::get_children_result::children_list_type children;
         bool entry_valid = true;
         try {
             children = client_.get_children(path).get().children();
         } catch (zk::no_entry& err) {
-            if (!ignore_no_entry)
-                throw err;
+            if (!ignore_no_entry) throw NoEntry{};
             entry_valid = false;
         }
 
         if (entry_valid) {
-            for (const auto& child : children)
-                make_recursive_erase_query(query, path + "/" + child, true);
-
+            for (const auto& child : children) {
+                make_recursive_erase_query_(query, path + '/' + child, true);
+            }
             query.push_back(zk::op::erase(path));
         }
     }
 
-    const Key get_path_(const std::string& key) const
+    std::string as_path_string_(const Path &path) const
     {
-        Key res = key;
-        res.set_prefix(prefix_);
-        return res;
+        return static_cast<std::string>(prefix_ / path);
     }
 
-    std::future<TransactionResult> commit_impl_(Transaction transaction)
+    [[noreturn]] static void rethrow_(zk::error& e)
     {
-        auto boundaries = std::make_shared<std::vector<size_t>>();
-
-        std::future<zk::multi_op> txn = thread_pool_->async(
-            [this, transaction = std::move(transaction), boundaries_ptr = boundaries] {
-                zk::multi_op trn;
-                std::vector<size_t>& boundaries = *boundaries_ptr;
-
-                for (const auto& check : transaction.checks()) {
-                    trn.push_back(
-                        zk::op::check(static_cast<std::string>(get_path_(check.key)),
-                                      check.version ? zk::version(check.version - 1) : zk::version::any()));
-                    boundaries.emplace_back(trn.size() - 1);
-                }
-
-                for (const auto& op_ptr : transaction.operations()) {
-                    switch (op_ptr->type) {
-                        case op::op_type::CREATE: {
-                            auto create_op_ptr = dynamic_cast<op::Create*>(op_ptr.get());
-                            trn.push_back(zk::op::create(
-                                get_path_(create_op_ptr->key),
-                                from_string(create_op_ptr->value),
-                                (!create_op_ptr->leased ? zk::create_mode::normal : zk::create_mode::ephemeral)
-                            ));
-                            break;
-                        }
-                        case op::op_type::SET: {
-                            auto set_op_ptr = dynamic_cast<op::Set*>(op_ptr.get());
-                            trn.push_back(zk::op::set(static_cast<std::string>(get_path_(set_op_ptr->key)),
-                                                      from_string(set_op_ptr->value)));
-                            break;
-                        }
-                        case op::op_type::ERASE: {
-                            auto erase_op_ptr = dynamic_cast<op::Erase*>(op_ptr.get());
-                            make_recursive_erase_query(trn, get_path_(erase_op_ptr->key));
-                            break;
-                        }
-                    }
-                    boundaries.emplace_back(trn.size() - 1);
-                }
-
-                return trn;
-            });
-
-        return thread_pool_->then(
-            thread_pool_->then(
-                std::move(txn),
-                [this](std::future<zk::multi_op>&& txn) {
-                    return client_.commit(txn.get()).get();
-                },
-                true
-            ), [boundaries_ptr = boundaries](std::future<zk::multi_result>&& multi_res) {
-                TransactionResult result;
-
-                try {
-                    auto multi_res_unwrapped = util::call_get(std::move(multi_res));
-
-                    for (const auto& res : multi_res_unwrapped) {
-                        switch (res.type()) {
-                            case zk::op_type::set:
-                                result.push_back(SetResult{
-                                    static_cast<uint64_t>(res.as_set().stat().data_version.value + 1)
-                                });
-                                break;
-                            case zk::op_type::create:
-                                result.push_back(CreateResult{1});
-                                break;
-                            case zk::op_type::check:
-                            case zk::op_type::erase:
-                                break;
-                        }
-                    }
-                } catch (zk::transaction_failed& e) {
-                    const auto op_index = e.failed_op_index();
-
-                    const std::vector<size_t>& boundaries = *boundaries_ptr;
-                    const auto user_op_index = util::user_op_index(boundaries, op_index);
-                    if (boundaries[user_op_index] != op_index)
-                        std::rethrow_exception(std::current_exception());
-                    throw TransactionFailed{user_op_index};
-                }
-
-                return result;
-            }
-        );
-    }
-
-public:
-    ZKClient(const std::string& address, const std::string& prefix, std::shared_ptr<ThreadPool> time_machine)
-        : Client(address, prefix, std::move(time_machine)),
-          client_(zk::client::connect(address).get())
-    {
-        if (!prefix.empty()) {
-            const std::vector<std::string> entries = key::get_entry_sequence(prefix);
-            for (const auto& e : entries) {
-                // start all operations asynchronously
-                // because ZK guarantees sequential consistency
-                client_.create(e, buffer());
-            }
+        switch (e.code()) {
+            case zk::error_code::no_entry:
+                throw NoEntry{};
+            case zk::error_code::entry_exists:
+                throw EntryExists{};
+            case zk::error_code::connection_loss:
+                throw ConnectionLoss{};
+            case zk::error_code::no_children_for_ephemerals:
+                throw NoChildrenForEphemeral{};
+            case zk::error_code::version_mismatch:
+            case zk::error_code::not_empty:
+            default:
+                throw ServiceError(e.what());
         }
     }
 
-    ZKClient() = delete;
+    class ZKWatchHandle_ : public WatchHandle {
+    private:
+        std::future<zk::event> event_;
 
-    ZKClient(const ZKClient&) = delete;
+    public:
+        ZKWatchHandle_(std::future<zk::event>&& event)
+            : event_(std::move(event))
+        {}
 
-    ZKClient& operator=(const ZKClient&) = delete;
+        void wait() override
+        {
+            try {
+                event_.get();
+            } catch (zk::error& e) {
+                rethrow_(e);
+            }
+        }
+    };
 
-
-    ~ZKClient() override = default;
-
-
-    std::future<CreateResult> create(const std::string& key, const std::string& value, bool lease = false) override
+    std::unique_ptr<WatchHandle> make_watch_handle_(std::future<zk::event>&& event) const
     {
-        return thread_pool_->then(
+        return std::make_unique<ZKWatchHandle_>(std::move(event));
+    }
+
+public:
+    ZKClient(const std::string& address, Path prefix) try
+        : Client(std::move(prefix)), client_(zk::client::connect(address).get())
+    {
+        std::string entry;
+        entry.reserve(prefix_.size());
+        for (const auto& segment : prefix_.segments()) {
+            try {
+                client_.create(entry.append("/").append(segment), buffer()).get();
+            } catch (zk::entry_exists&) {
+                // do nothing
+            } catch (zk::error& e) {
+                rethrow_(e);
+            }
+        }
+    } catch (zk::error& e) {
+        rethrow_(e);
+    }
+
+
+    int64_t create(const Key& key, const std::string& value, bool lease = false) override
+    {
+        try {
             client_.create(
-                static_cast<std::string>(get_path_(key)),
-                from_string(value),
+                as_path_string_(key),
+                from_string_(value),
                 !lease ? zk::create_mode::normal : zk::create_mode::ephemeral
-            ),
-            [](std::future<zk::create_result>&& res) -> CreateResult {
-                util::call_get_ignore(std::move(res));
-                return {1};
-            }
-        );
+            ).get();
+        } catch (zk::error& e) {
+            rethrow_(e);
+        }
+        return 1;
     }
 
-    std::future<ExistsResult> exists(const std::string& key, bool watch = false) override
+
+    ExistsResult exists(const Key& key, bool watch = false) override
     {
-        if (watch)
-            return thread_pool_->then(
-                client_.watch_exists(static_cast<std::string>(get_path_(key))),
-                [tp = thread_pool_](std::future<zk::watch_exists_result>&& result) -> ExistsResult {
-                    zk::watch_exists_result unwrapped = util::call_get(std::move(result));
-                    auto stat = unwrapped.initial().stat();
+        std::unique_ptr<WatchHandle> watch_handle;
+        std::optional<zk::stat> stat;
+        try {
+            if (watch) {
+                auto result = client_.watch_exists(as_path_string_(key)).get();
+                stat = std::move(result.initial().stat());
+                watch_handle = make_watch_handle_(std::move(result.next()));
+            } else stat = client_.exists(as_path_string_(key)).get().stat();
+        } catch (zk::error& e) {
+            rethrow_(e);
+        }
 
-                    return {
-                        stat.has_value() ? static_cast<uint64_t>(stat.value().data_version.value + 1) : 0,
-                        !!unwrapped.initial(),
-                        tp->then(std::move(unwrapped.next()), util::call_get_ignore<zk::event>).share()
-                    };
-                });
-
-        return thread_pool_->then(
-            client_.exists(static_cast<std::string>(get_path_(key))),
-            [](std::future<zk::exists_result>&& result) -> ExistsResult {
-                zk::exists_result unwrapped = util::call_get(std::move(result));
-                auto stat = unwrapped.stat();
-
-                return {stat.has_value()
-                        ? static_cast<uint64_t>(stat.value().data_version.value + 1) : 0,
-                        !!unwrapped};
-            });
+        return {
+            stat.has_value() ? static_cast<int64_t>(stat->data_version.value) + 1 : 0,
+            std::move(watch_handle)
+        };
     }
 
 
-    std::future<ChildrenResult> get_children(const std::string& key, bool watch) override
+    ChildrenResult get_children(const Key& key, bool watch) override
     {
-        if (watch)
-            return thread_pool_->then(
-                client_.watch_children(static_cast<std::string>(get_path_(key))),
-                [this, key](std::future<zk::watch_children_result>&& result) -> ChildrenResult {
-                    zk::watch_children_result unwrapped = util::call_get(std::move(result));
-                    const std::vector<std::string>& raw_children = unwrapped.initial().children();
-                    return {
-                        util::map_vector(raw_children, [this, key](const auto& child) { return key + "/" + child; }),
-                        thread_pool_->then(std::move(unwrapped.next()), util::call_get_ignore<zk::event>)
-                    };
-                }
-            );
-
-        return thread_pool_->then(
-            client_.get_children(static_cast<std::string>(get_path_(key))),
-            [this, key](std::future<zk::get_children_result>&& result) -> ChildrenResult {
-                zk::get_children_result unwrapped = util::call_get(std::move(result));
-                const std::vector<std::string>& raw_children = unwrapped.children();
-                return {
-                    util::map_vector(raw_children, [this, key](const auto& child) { return key + "/" + child; })
-                };
+        std::vector<std::string> raw_children;
+        std::unique_ptr<WatchHandle> watch_handle;
+        try {
+            if (watch) {
+                auto result = client_.watch_children(as_path_string_(key)).get();
+                watch_handle = make_watch_handle_(std::move(result.next()));
+                raw_children = std::move(result.initial().children());
+            } else {
+                auto result = client_.get_children(as_path_string_(key)).get();
+                raw_children = std::move(result.children());
             }
-        );
+        } catch (zk::error& e) {
+            rethrow_(e);
+        }
+
+        std::vector<std::string> children;
+        for (const auto& child : raw_children) {
+            children.emplace_back();
+            children.back().reserve(key.size() + child.size() + 1);
+            children.back().append(static_cast<std::string>(key)).append("/").append(child);
+        }
+        return { std::move(children), std::move(watch_handle) };
     }
+
 
     // No transactions. Atomicity is not necessary for linearizability here!
     // At least it seems to be so...
     // See also TLA+ spec: https://gist.github.com/raid-7/9ad7b88cd2ec2e83f56e3b69214b6762
-    std::future<SetResult> set(const std::string& key, const std::string& value) override
+    int64_t set(const Key& key, const std::string& value) override
     {
-        auto path = static_cast<std::string>(get_path_(key));
+        auto path = as_path_string_(key);
+        auto value_as_buffer = from_string_(value);
 
-        return thread_pool_->then(
-            client_.create(path, from_string(value)),
-            [this, path, value](std::future<zk::create_result>&& res) -> SetResult {
-                try {
-                    util::call_get(std::move(res));
-                    return {1};
-                } catch (EntryExists&) {
-                    return util::call_get(thread_pool_->then(
-                        client_.set(path, from_string(value)),
-                        [path](std::future<zk::set_result>&& result) -> SetResult {
-                            try {
-                                return {
-                                    static_cast<uint64_t>(util::call_get(std::move(result)).stat().data_version.value +
-                                                          1)};
-                            } catch (NoEntry&) {
-                                // concurrent remove happened
-                                // but set must not throw NoEntry
-                                // hm, we don't know real version
-                                // doesn't matter, return some large number instead
-                                return {static_cast<uint64_t>(1) << 63};
-                            }
-                        },
-                        true
-                    ));
-                }
+        try {
+            client_.create(path, value_as_buffer).get();
+            return 1;
+        } catch (zk::entry_exists&) {
+            try {
+                return static_cast<int64_t>(client_.set(path, value_as_buffer).get().stat().data_version.value) + 1;
+            } catch (zk::no_entry&) {
+                // concurrent remove happened, but set must not throw NoEntry
+                // let's return some large number instead of real version
+                return static_cast<int64_t>(1) << 62;
             }
-        );
+        } catch (zk::error& e) {
+            rethrow_(e);
+        }
     }
+
 
     // Same as set: transactions aren't necessary
-    std::future<CASResult> cas(const std::string& key, const std::string& value, uint64_t version = 0) override
+    CasResult cas(const Key& key, const std::string& value, int64_t version = 0) override
     {
-        auto path = static_cast<std::string>(get_path_(key));
-
         if (!version) {
-            return thread_pool_->then(
-                create(key, value),
-                [this, path, value](std::future<CreateResult>&& res) -> CASResult {
-                    try {
-                        util::call_get(std::move(res));
-                        return {1, true};
-                    } catch (EntryExists&) {
-                        return util::call_get(thread_pool_->then(
-                            client_.get(path),
-                            [](std::future<zk::get_result>&& result) -> CASResult {
-                                try {
-                                    return {
-                                        static_cast<uint64_t>(
-                                            util::call_get(std::move(result)).stat().data_version.value +
-                                            1),
-                                        false
-                                    };
-                                } catch (NoEntry&) {
-                                    // concurrent remove happened
-                                    // cas with zero version must not throw NoEntry
-                                    return {
-                                        static_cast<uint64_t>(1) << 63,
-                                        false
-                                    };
-                                }
-                            },
-                            true
-                        ));
-                    }
-                });
-        }
-
-        return thread_pool_->then(
-            thread_pool_->then(
-                client_.set(static_cast<std::string>(get_path_(key)), from_string(value), zk::version(version - 1)),
-                [this, version, path](std::future<zk::set_result>&& result) -> CASResult {
-                    try {
-                        return {static_cast<uint64_t>(result.get().stat().data_version.value + 1), true};
-                    } catch (zk::error& e) {
-                        if (e.code() == zk::error_code::no_entry)
-                            throw NoEntry{};
-
-                        if (e.code() == zk::error_code::version_mismatch) {
-                            return thread_pool_->then(
-                                client_.get(path),
-                                [version](std::future<zk::get_result>&& result) -> CASResult {
-                                    try {
-                                        return {
-                                            static_cast<uint64_t>(
-                                                util::call_get(std::move(result)).stat().data_version.value + 1),
-                                            false
-                                        };
-                                    } catch (zk::error& e) {
-                                        if (e.code() == zk::error_code::no_entry) {
-                                            return {
-                                                static_cast<uint64_t>(1) << 63,
-                                                false
-                                            };
-                                        }
-                                        throw e;
-                                    }
-                                },
-                                true
-                            ).get();
-                        }
-                        throw e;
-                    }
-                }
-            ),
-            util::call_get<CASResult>
-        );
-    }
-
-    std::future<GetResult> get(const std::string& key, bool watch = false) override
-    {
-        if (watch) {
-            return thread_pool_->then(
-                client_.watch(static_cast<std::string>(get_path_(key))),
-                [tp = thread_pool_](std::future<zk::watch_result>&& result) -> GetResult {
-                    auto full_res = util::call_get(std::move(result));
-                    auto res = full_res.initial();
-                    return {
-                        static_cast<uint64_t>(res.stat().data_version.value + 1),
-                        to_string(res.data()),
-                        tp->then(std::move(full_res.next()), util::call_get_ignore<zk::event>).share()
-                    };
-                }
-            );
-        }
-
-        return thread_pool_->then(
-            client_.get(static_cast<std::string>(get_path_(key))),
-            [](std::future<zk::get_result>&& result) -> GetResult {
-                auto res = util::call_get(std::move(result));
-                return {static_cast<uint64_t>(res.stat().data_version.value + 1), to_string(res.data())};
+            try {
+                return {create(key, value)};
+            } catch (EntryExists&) {
+                return {0};
             }
-        );
+        }
+
+        try {
+            return {static_cast<int64_t>(
+                        client_.set(
+                            as_path_string_(key),
+                            from_string_(value),
+                            zk::version(version - 1)
+                        ).get().stat().data_version.value) + 1};
+        } catch (zk::error& e) {
+            switch (e.code()) {
+                case zk::error_code::no_entry:
+                    throw NoEntry{};
+                case zk::error_code::version_mismatch:
+                    return {0};
+                default:
+                    rethrow_(e);
+            }
+        }
     }
 
-    std::future<void> erase(const std::string& key, uint64_t version = 0) override
+
+    GetResult get(const Key& key, bool watch = false) override
     {
-        return thread_pool_->then(
-            thread_pool_->async([this, key, version] {
-                while (true) {
-                    auto path = static_cast<std::string>(get_path_(key));
+        std::optional<zk::get_result> result;
+        std::unique_ptr<WatchHandle> watch_handle;
 
-                    zk::multi_op txn;
-                    txn.push_back(zk::op::check(path));
-                    txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
+        try {
+            if (watch) {
+                auto watch_result = client_.watch(as_path_string_(key)).get();
+                result.emplace(std::move(watch_result.initial()));
+                watch_handle = make_watch_handle_(std::move(watch_result.next()));
+            } else result.emplace(client_.get(as_path_string_(key)).get());
+        } catch (zk::error& e) {
+            rethrow_(e);
+        }
 
-                    make_recursive_erase_query(txn, static_cast<std::string>(get_path_(key)), false);
-
-                    try {
-                        auto res = client_.commit(txn).get();
-                        return;
-                    } catch (zk::transaction_failed& e) {
-                        if (e.failed_op_index() == 0)
-                            throw NoEntry{};
-                        if (e.failed_op_index() == 1)
-                            return;
-                    }
-                }
-            }),
-            util::call_get<void>,
-            true
-        );
-    }
-
-    std::future<TransactionResult> commit(const Transaction& transaction) override
-    {
-        auto promise = std::make_shared<std::promise<TransactionResult>>();
-        auto try_commit = std::make_shared<std::function<void(void)>>();
-
-        *try_commit = [this, try_commit, transaction, promise] {
-            thread_pool_->then(
-                commit_impl_(transaction),
-                [try_commit, promise](std::future<TransactionResult>&& res) -> void {
-                    try {
-                        promise->set_value(res.get());
-                    } catch (zk::transaction_failed& e) {
-                        (*try_commit)();
-                    } catch (...) {
-                        promise->set_exception(std::current_exception());
-                    }
-                }
-            );
+        return {
+            // zk::client::get returns future with zk::no_entry the key does not exist, so checking if result.stat() has value isn't needed
+            static_cast<int64_t>(result->stat().data_version.value) + 1,
+            to_string_(result->data()),
+            std::move(watch_handle)
         };
+    }
 
-        (*try_commit)();
-        return promise->get_future();
+
+    void erase(const Key& key, int64_t version = 0) override
+    {
+        auto path = as_path_string_(key);
+
+        while (true) {
+            zk::multi_op txn;
+            txn.push_back(zk::op::check(path));
+            txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
+
+            make_recursive_erase_query_(txn, path, false);
+
+            try {
+                client_.commit(txn).get();
+                return;
+            } catch (zk::transaction_failed& e) {
+                // key does not exist
+                if (e.failed_op_index() == 0) throw NoEntry{};
+                // version mismatch
+                if (e.failed_op_index() == 1) return;
+            }
+        }
+    }
+
+
+    TransactionResult commit(const Transaction& transaction)
+    {
+        while (true) {
+            std::vector<size_t> boundaries;
+            zk::multi_op txn;
+
+            for (const auto& check : transaction.checks) {
+                txn.push_back(zk::op::check(as_path_string_(check.key),
+                                            check.version ? zk::version(check.version - 1) : zk::version::any()));
+                boundaries.emplace_back(txn.size() - 1);
+            }
+
+            for (const auto& op : transaction.ops) {
+                std::visit([&txn, &boundaries, this](auto&& arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, TxnOpCreate>) {
+                        txn.push_back(zk::op::create(
+                            as_path_string_(arg.key),
+                            from_string_(arg.value),
+                            !arg.lease ? zk::create_mode::normal : zk::create_mode::ephemeral
+                        ));
+                    } else if constexpr (std::is_same_v<T, TxnOpSet>) {
+                        txn.push_back(zk::op::set(as_path_string_(arg.key),
+                                                  from_string_(arg.value)));
+                    } else if constexpr (std::is_same_v<T, TxnOpErase>) {
+                        make_recursive_erase_query_(txn, as_path_string_(arg.key));
+                    } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
+                }, op);
+
+                boundaries.push_back(txn.size() - 1);
+            }
+
+            std::optional<zk::multi_result> raw_result;
+
+            try {
+                raw_result.emplace(client_.commit(txn).get());
+            } catch (zk::transaction_failed& e) {
+                auto real_index = e.failed_op_index();
+                size_t user_index = std::distance(boundaries.begin(),
+                                                  std::lower_bound(boundaries.begin(), boundaries.end(), real_index));
+
+                // if the failed op is a part of a complex one, repeat
+                if (boundaries[user_index] != real_index) continue;
+                else throw TxnFailed{user_index};
+            } catch (zk::error& e) {
+                rethrow_(e);
+            }
+
+            std::vector<TxnOpResult> result;
+            for (const auto& res : *raw_result) {
+                switch (res.type()) {
+                    case zk::op_type::set:
+                        result.push_back(TxnOpResult{
+                            TxnOpResult::Kind::SET,
+                            static_cast<int64_t>(res.as_set().stat().data_version.value) + 1
+                        });
+                        break;
+                    case zk::op_type::create:
+                        result.push_back(TxnOpResult{
+                            TxnOpResult::Kind::CREATE,
+                            1
+                        });
+                        break;
+                    case zk::op_type::check:
+                    case zk::op_type::erase:
+                        break;
+                }
+            }
+
+            return result;
+        }
     }
 };
 
