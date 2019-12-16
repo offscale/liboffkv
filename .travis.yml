@@ -57,7 +57,7 @@ before_script:
   - travis_wait 25 ./vcpkg install gtest || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
   - travis_wait 34 ./vcpkg install ppconsul || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
   - travis_wait 25 ./vcpkg install zkpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
-  - travis_wait 35 ./vcpkg install etcdcpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
+  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || $TRAVIS_BUILD_DIR/travis/export_vcpkg_logs.sh
   - rm -rf buildtrees
 
 script:
