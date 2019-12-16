@@ -5,7 +5,7 @@
 #include <memory>
 #include <variant>
 #include <utility>
-#include <stdint.h>
+#include <cstdint>
 #include "key.hpp"
 
 namespace liboffkv {
@@ -14,7 +14,7 @@ class WatchHandle
 {
 public:
     virtual void wait() = 0;
-    virtual ~WatchHandle() {}
+    virtual ~WatchHandle() = default;
 };
 
 struct ExistsResult
@@ -84,7 +84,7 @@ struct TxnOpErase
 {
     Key key;
 
-    TxnOpErase(Key key_)
+    explicit TxnOpErase(Key key_)
         : key(std::move(key_))
     {}
 };
@@ -118,7 +118,7 @@ protected:
     Path prefix_;
 
 public:
-    Client(Path prefix)
+    explicit Client(Path prefix)
         : prefix_{std::move(prefix)}
     {}
 
@@ -138,7 +138,7 @@ public:
 
     virtual TransactionResult commit(const Transaction&) = 0;
 
-    virtual ~Client() {}
+    virtual ~Client() = default;
 };
 
 } // namespace liboffkv

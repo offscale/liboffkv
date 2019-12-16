@@ -284,7 +284,7 @@ public:
     }
 
 
-    TransactionResult commit(const Transaction& transaction)
+    TransactionResult commit(const Transaction& transaction) override
     {
         while (true) {
             std::vector<size_t> boundaries;
@@ -297,7 +297,7 @@ public:
             }
 
             for (const auto& op : transaction.ops) {
-                std::visit([&txn, &boundaries, this](auto&& arg) {
+                std::visit([&txn, this](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
                     if constexpr (std::is_same_v<T, TxnOpCreate>) {
                         txn.push_back(zk::op::create(
