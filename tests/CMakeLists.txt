@@ -25,15 +25,3 @@ foreach (service_addr ${SERVICE_TEST_ADDRESSES})
         COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\"")
 endforeach()
 
-if (BUILD_STRESS_TESTS)
-    find_package (glog REQUIRED)
-    find_package (Boost COMPONENTS thread REQUIRED)
-    foreach (service_addr ${SERVICE_TEST_ADDRESSES})
-        string (REGEX MATCH "^[a-zA-Z0-9]+" service_name "${service_addr}")
-        create_test (
-            NAME ${service_name}_stress
-            FILES stress_tests.cpp
-            LIBS glog::glog Boost::thread
-            COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\"")
-    endforeach ()
-endif ()

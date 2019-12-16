@@ -9,7 +9,6 @@ option (ENABLE_ETCD "Build with etcd support" ON)
 option (ENABLE_CONSUL "Build with Consul support" ON)
 option (BUILD_TESTS "Build library tests" ON)
 option (BUILD_CLIB "Build C library" OFF)
-option (BUILD_STRESS_TESTS "Build stress tests" OFF)
 
 configure_file (liboffkv/version.hpp.in generated/liboffkv/version.hpp @ONLY)
 configure_file (liboffkv/config.hpp.in generated/liboffkv/config.hpp @ONLY)
