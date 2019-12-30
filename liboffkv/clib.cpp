@@ -142,6 +142,15 @@ int64_t offkv_create(offkv_Handle h, const char *key, const char *value, size_t 
     }
 }
 
+int64_t offkv_set(offkv_Handle h, const char *key, const char *value, size_t nvalue)
+{
+    try {
+        return unwrap_client(h)->set(key, std::string(value, nvalue));
+    } catch (const std::exception &e) {
+        return to_errcode(e);
+    }
+}
+
 int64_t offkv_exists(offkv_Handle h, const char *key, offkv_Watch *p_watch)
 {
     try {

@@ -90,6 +90,15 @@ offkv_create(
     size_t /*nvalue*/,
     int /*flags*/);
 
+// On error, returns negative value.
+// On success, returns the version of the created node.
+int64_t
+offkv_set(
+    offkv_Handle,
+    const char * /*key*/,
+    const char * /*value*/,
+    size_t /*nvalue*/);
+
 // If /p_watch/ is not NULL, a new watch is created and written into it.
 //
 // On error, returns negative value.
