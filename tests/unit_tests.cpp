@@ -43,6 +43,19 @@ TEST_F(ClientFixture, key_validation_test)
     ASSERT_NO_THROW(check_key("/.../.../zookeper"));
 }
 
+TEST_F(ClientFixture, create_large_test)
+{
+    auto holder = hold_keys("/key");
+
+    std::string value(65'000, '\1');
+
+    ASSERT_NO_THROW(client->create("/key", value));
+    ASSERT_THROW(client->create("/key", value), liboffkv::EntryExists);
+
+    ASSERT_THROW(client->create("/key/child/grandchild", value), liboffkv::NoEntry);
+    ASSERT_NO_THROW(client->create("/key/child", value));
+}
+
 TEST_F(ClientFixture, create_test)
 {
     auto holder = hold_keys("/key");
