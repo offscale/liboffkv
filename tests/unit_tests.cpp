@@ -93,14 +93,23 @@ TEST_F(ClientFixture, erase_test)
     ASSERT_NO_THROW(client->erase("/key"));
     ASSERT_FALSE(client->exists("/key"));
     ASSERT_FALSE(client->exists("/key/child"));
+}
 
-    int64_t initialVersion = client->create("/key", "value");
 
-    ASSERT_NO_THROW(client->erase("/key", initialVersion + 1));
+TEST_F(ClientFixture, versioned_erase_test)
+{
+    auto holder = hold_keys("/key");
+
+    int64_t version = client->create("/key", "value");
+    client->create("/key/child", "value");
+
+    ASSERT_NO_THROW(client->erase("/key", version + 1));
     ASSERT_TRUE(client->exists("/key"));
+    ASSERT_TRUE(client->exists("/key/child"));
 
-    ASSERT_NO_THROW(client->erase("/key", initialVersion));
+    ASSERT_NO_THROW(client->erase("/key", version));
     ASSERT_FALSE(client->exists("/key"));
+    ASSERT_FALSE(client->exists("/key/child"));
 }
 
 

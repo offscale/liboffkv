@@ -287,15 +287,12 @@ public:
         std::vector<ppconsul::kv::TxnOperation> txn{
             ppconsul::kv::txn_ops::Get{key_string}
         };
+
         if (version) {
-            txn.push_back(ppconsul::kv::txn_ops::CompareErase{
-                key_string,
-                static_cast<uint64_t>(version)
-            });
-        } else {
-            txn.push_back(ppconsul::kv::txn_ops::Erase{key_string});
-            txn.push_back(ppconsul::kv::txn_ops::EraseAll{key_string + "/"});
+            txn.push_back(ppconsul::kv::txn_ops::CheckIndex{key_string, static_cast<uint64_t>(version)});
         }
+        txn.push_back(ppconsul::kv::txn_ops::Erase{key_string});
+        txn.push_back(ppconsul::kv::txn_ops::EraseAll{key_string + "/"});
 
         try {
             kv_.commit(txn);
