@@ -240,7 +240,7 @@ Transaction body is separated into two blocks: firstly you should write all requ
             assert(txn_result.size() == 1 &&
                    txn_result[0].kind == TxnOpResult::Kind::SET);
 
-            std::cout << "After transaction new version of \"/foo\" is "
+            std::cout << "After the transaction the new version of \"/foo\" is "
                       << txn_result[0].version << std::endl;
         } catch (TxnFailed& e) {
             // TxnFailed exception contains failed op index
@@ -339,10 +339,9 @@ Licensed under either of
 
 at your option.
 
-### TODOs
-- liboffkv-rust
-- liboffkv-go
-- liboffkv-java
+## lioffkv is available in other languages!!!
+- Rust: [rsoffkv](https://github.com/dimak24/liboffkv-rust)
+- Java: [liboffkv-java](https://github.com/raid-7/liboffkv-java)
 
 ### Contribution
 
