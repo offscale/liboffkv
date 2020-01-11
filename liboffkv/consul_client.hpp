@@ -91,6 +91,32 @@ private:
         return std::make_unique<ConsulWatchHandle_>(address_, key, old_version, all_with_prefix);
     }
 
+    void create_session_if_needed_()
+    {
+        if (!session_id_.empty())
+            return;
+        auto client = std::make_unique<ppconsul::Consul>(address_);
+        auto sessions = std::make_unique<ppconsul::sessions::Sessions>(*client);
+
+        session_id_ = sessions->create(
+            ppconsul::sessions::kw::lock_delay = std::chrono::seconds{0},
+            ppconsul::sessions::kw::behavior = ppconsul::sessions::InvalidationBehavior::Delete,
+            ppconsul::sessions::kw::ttl = TTL);
+
+        ping_sender_ = detail::PingSender(
+            (TTL + std::chrono::seconds(1)) / 2,
+            [client = std::move(client), sessions = std::move(sessions), id = session_id_]()
+            {
+                try {
+                    sessions->renew(id);
+                    return (TTL + std::chrono::seconds(1)) / 2;
+                } catch (... /* BadStatus& ? */) {
+                    return std::chrono::seconds::zero();
+                }
+            }
+        );
+    }
+
 public:
     ConsulClient(const std::string &address, Path prefix)
         : Client(std::move(prefix))
@@ -115,28 +141,7 @@ public:
         txn.push_back(ppconsul::kv::txn_ops::CheckNotExists{key_string});
 
         if (lease) {
-            if (session_id_.empty()) {
-                auto client = std::make_unique<ppconsul::Consul>(address_);
-                auto sessions = std::make_unique<ppconsul::sessions::Sessions>(*client);
-
-                session_id_ = sessions->create(
-                    ppconsul::sessions::kw::lock_delay = std::chrono::seconds{0},
-                    ppconsul::sessions::kw::behavior = ppconsul::sessions::InvalidationBehavior::Delete,
-                    ppconsul::sessions::kw::ttl = TTL);
-
-                ping_sender_ = detail::PingSender(
-                    (TTL + std::chrono::seconds(1)) / 2,
-                    [client = std::move(client), sessions = std::move(sessions), id = session_id_]()
-                    {
-                        try {
-                            sessions->renew(id);
-                            return (TTL + std::chrono::seconds(1)) / 2;
-                        } catch (... /* BadStatus& ? */) {
-                            return std::chrono::seconds::zero();
-                        }
-                    }
-                );
-            }
+            create_session_if_needed_();
             txn.push_back(ppconsul::kv::txn_ops::Lock{key_string, value, session_id_});
         } else {
             txn.push_back(ppconsul::kv::txn_ops::Set{key_string, value});
@@ -289,9 +294,13 @@ public:
         };
 
         if (version) {
-            txn.push_back(ppconsul::kv::txn_ops::CheckIndex{key_string, static_cast<uint64_t>(version)});
+            txn.push_back(ppconsul::kv::txn_ops::CompareErase{
+                key_string,
+                static_cast<uint64_t>(version),
+            });
+        } else {
+            txn.push_back(ppconsul::kv::txn_ops::Erase{key_string});
         }
-        txn.push_back(ppconsul::kv::txn_ops::Erase{key_string});
         txn.push_back(ppconsul::kv::txn_ops::EraseAll{key_string + "/"});
 
         try {
@@ -352,7 +361,16 @@ public:
                     txn.push_back(ppconsul::kv::txn_ops::CheckNotExists{key_string});
                     // CheckNotExists does not produce any results
 
-                    txn.push_back(ppconsul::kv::txn_ops::Set{key_string, arg.value});
+                    if (arg.lease) {
+                        create_session_if_needed_();
+                        txn.push_back(ppconsul::kv::txn_ops::Lock{
+                            key_string,
+                            arg.value,
+                            session_id_,
+                        });
+                    } else {
+                        txn.push_back(ppconsul::kv::txn_ops::Set{key_string, arg.value});
+                    }
                     result_kinds.push_back(ResultKind::CREATE);
 
                 } else if constexpr (std::is_same_v<T, TxnOpSet>) {
@@ -409,6 +427,9 @@ public:
                 std::lower_bound(boundaries.begin(), boundaries.end(), op_index)
                 - boundaries.begin();
             throw TxnFailed{user_op_index};
+
+        } catch (const ppconsul::Error &e) {
+            rethrow_(e);
         }
     }
 };
