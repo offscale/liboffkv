@@ -843,7 +843,8 @@ public:
                     expected_existence.emplace_back();
 
                     bldr.add_check_exists(path)
-                        .on_success().add_delete_range_request(make_direct_children_range_(arg.key))
+                        .on_success().add_delete_range_request(path)
+                                     .add_delete_range_request(make_subtree_range_(arg.key))
                         .on_failure().add_range_request(path, true);
                     expected_existence.back().push_back(true);
 

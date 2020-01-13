@@ -352,6 +352,7 @@ TEST_F(ClientFixture, commit_test)
     auto key_version = client->create("/key", "value");
     auto foo_version = client->create("/foo", "value");
     auto bar_version = client->create("/foo/bar", "value");
+    client->create("/foo/bar/subbar", "value");
 
     // check fails
     try {
@@ -429,7 +430,9 @@ TEST_F(ClientFixture, commit_test)
 
     ASSERT_TRUE(client->exists("/key/child"));
     ASSERT_EQ(client->get("/key").value, "new_value");
+    ASSERT_FALSE(client->exists("/foo"));
     ASSERT_FALSE(client->exists("/foo/bar"));
+    ASSERT_FALSE(client->exists("/foo/bar/subbar"));
 
     ASSERT_GT(result.at(1).version, key_version);
 }
