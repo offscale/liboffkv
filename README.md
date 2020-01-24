@@ -1,7 +1,7 @@
 liboffkv
 ========
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.org/offscale/liboffkv.svg?branch=master)](https://travis-ci.org/offscale/liboffkv)
+[![Build Status](https://travis-ci.org/dimak24/liboffkv-rust.svg?branch=master)](https://travis-ci.org/dimak24/liboffkv-rust)
 
 #### The library is designed to provide a uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul.
 
