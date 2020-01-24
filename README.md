@@ -1,7 +1,7 @@
 liboffkv
 ========
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.org/dimak24/liboffkv-rust.svg?branch=master)](https://travis-ci.org/dimak24/liboffkv-rust)
+[![Build Status](https://travis-ci.org/offscale/liboffkv.svg?branch=master)](https://travis-ci.org/offscale/liboffkv)
 
 #### The library is designed to provide a uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul.
 
@@ -182,10 +182,10 @@ Transaction body is separated into two blocks: firstly you should write all requ
     {
         // firstly specify protocol (zk | consul | etcd) and address
         // you can also specify a prefix all the keys will start with
-        auto client = connect("consul://127.0.0.1:8500", "/prefix");
+        auto client = open("consul://127.0.0.1:8500", "/prefix");
         
         
-        // sometimes it is returned with an exception (for more details see "liboffkv/client.hpp")
+        // on failure methods throw exceptions (for more details see "liboffkv/client.hpp")
         try {
             int64_t initial_version = client->create("/key", "value");
             std::cout << "Key \"/prefix/key\" was created successfully! "
@@ -198,7 +198,7 @@ Transaction body is separated into two blocks: firstly you should write all requ
         }
 	
 	
-	    // WATCH EXAMPLE
+	// WATCH EXAMPLE
         auto result = client.exists("/key", true);
 
         // this thread erase the key after 10 seconds
@@ -340,7 +340,7 @@ Licensed under either of
 at your option.
 
 ## lioffkv is available in other languages!!!
-- Rust: [rsoffkv](https://github.com/dimak24/liboffkv-rust)
+- Rust: [rsoffkv](https://github.com/dimak24/rsoffkv)
 - Java: [liboffkv-java](https://github.com/raid-7/liboffkv-java)
 
 ### Contribution
