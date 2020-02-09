@@ -31,21 +31,29 @@ private:
         return {buf.begin(), buf.end()};
     }
 
-    void make_recursive_erase_query_(zk::multi_op& query, const std::string& path, bool ignore_no_entry = true)
+    enum EraseQueryFailures {
+        IGNORE_NO_ENTRY,
+        THROW_NO_ENTRY,
+        FAIL_TXN_ON_NO_ENTRY
+    };
+
+    void make_recursive_erase_query_(zk::multi_op& query, const std::string& path, EraseQueryFailures no_entry_behavior)
     {
         zk::get_children_result::children_list_type children;
         bool entry_valid = true;
         try {
             children = client_.get_children(path).get().children();
         } catch (zk::no_entry& err) {
-            if (!ignore_no_entry) throw NoEntry{};
+            if (no_entry_behavior == THROW_NO_ENTRY) throw NoEntry{};
             entry_valid = false;
         }
 
         if (entry_valid) {
             for (const auto& child : children) {
-                make_recursive_erase_query_(query, path + '/' + child, true);
+                make_recursive_erase_query_(query, path + '/' + child, IGNORE_NO_ENTRY);
             }
+        }
+        if (entry_valid || no_entry_behavior == FAIL_TXN_ON_NO_ENTRY) {
             query.push_back(zk::op::erase(path));
         }
     }
@@ -269,7 +277,7 @@ public:
             txn.push_back(zk::op::check(path));
             txn.push_back(zk::op::check(path, version ? zk::version(version - 1) : zk::version::any()));
 
-            make_recursive_erase_query_(txn, path, false);
+            make_recursive_erase_query_(txn, path, THROW_NO_ENTRY);
 
             try {
                 client_.commit(txn).get();
@@ -313,7 +321,7 @@ public:
                         txn.push_back(zk::op::set(as_path_string_(arg.key),
                                                   from_string_(arg.value)));
                     } else if constexpr (std::is_same_v<T, TxnOpErase>) {
-                        make_recursive_erase_query_(txn, as_path_string_(arg.key));
+                        make_recursive_erase_query_(txn, as_path_string_(arg.key), FAIL_TXN_ON_NO_ENTRY);
                     } else static_assert(detail::always_false<T>::value, "non-exhaustive visitor");
                 }, op);
 
