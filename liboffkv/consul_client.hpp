@@ -190,20 +190,23 @@ public:
                 ppconsul::kv::txn_ops::Get{key_string},
             });
 
-            std::unique_ptr<WatchHandle> watch_handle;
-            if (watch)
-                watch_handle = make_watch_handle_(child_prefix, result.back().modifyIndex, true);
-
             std::vector<std::string> children;
+            uint64_t max_modify_index = 0;
             const auto nchild_prefix = child_prefix.size();
             const auto nglobal_prefix = as_path_string_(Path{""}).size();
-            for (auto it = result.begin(), end = --result.end(); it != end; ++it)
+            for (auto it = result.begin(), end = --result.end(); it != end; ++it) {
+                max_modify_index = std::max(max_modify_index, it->modifyIndex);
                 if (it->key.find('/', nchild_prefix) == std::string::npos) {
                     if (nglobal_prefix)
                         children.emplace_back(it->key.substr(nglobal_prefix));
                     else
                         children.emplace_back("/" + it->key);
                 }
+            }
+
+            std::unique_ptr<WatchHandle> watch_handle;
+            if (watch)
+                watch_handle = make_watch_handle_(child_prefix, max_modify_index, true);
 
             return {std::move(children), std::move(watch_handle)};
 
