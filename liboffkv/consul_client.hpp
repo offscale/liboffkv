@@ -191,7 +191,7 @@ public:
             });
 
             std::vector<std::string> children;
-            uint64_t max_modify_index = 0;
+            uint64_t max_modify_index = result.back().modifyIndex;
             const auto nchild_prefix = child_prefix.size();
             const auto nglobal_prefix = as_path_string_(Path{""}).size();
             for (auto it = result.begin(), end = --result.end(); it != end; ++it) {
