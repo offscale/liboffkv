@@ -142,6 +142,8 @@ private:
                     if (!(response->created() || response->canceled()) && process_watch_response_m(*response)) {
                         cancel_watch_m(response->watch_id(), lock);
                     }
+
+                    delete response;
                 }
 
                 request_read_next_watch_response_m();
