@@ -16,6 +16,19 @@
 
 namespace liboffkv {
 
+namespace detail {
+
+void ensure_succeeded_(grpc::Status status) {
+    if (status.ok())
+        return;
+
+    if (status.error_code() == grpc::StatusCode::UNAVAILABLE)
+        throw ConnectionLoss{};
+    throw ServiceError{status.error_message()};
+}
+
+} // namespace detail
+
 
 class ETCDWatchCreator {
 public:
@@ -273,7 +286,7 @@ private:
         etcdserverpb::LeaseGrantResponse response;
         grpc::Status status = lease_stub_->LeaseGrant(&context, req, &response);
 
-        if (!status.ok()) throw ServiceError(status.error_message());
+        detail::ensure_succeeded_(status);
 
         setup_lease_renewal_(response.id(), std::chrono::seconds(response.ttl()));
         return response.id();
@@ -509,13 +522,12 @@ private:
         return full_path.substr(prefix_.size(), pos + 1 - prefix_.size()) + full_path.substr(pos + 2);
     }
 
-
     TxnResponse commit_(grpc::ClientContext& context, const TxnRequest& txn)
     {
         TxnResponse response;
 
         auto status = stub_->Txn(&context, txn, &response);
-        if (!status.ok()) throw ServiceError(status.error_message());
+        detail::ensure_succeeded_(status);
 
         return response;
     }
@@ -615,7 +627,7 @@ public:
         RangeResponse response;
 
         auto status = stub_->Range(&context, request, &response);
-        if (!status.ok()) throw ServiceError(status.error_message());
+        detail::ensure_succeeded_(status);
 
         bool exists = response.kvs_size();
 
@@ -697,7 +709,13 @@ public:
             bldr.on_success().add_put_request(path, value, 0, expect_lease)
                              .add_range_request(path);
 
-            TxnResponse response = commit_(context, bldr.get_transaction());
+            TxnResponse response;
+            auto status = stub_->Txn(&context, bldr.get_transaction(), &response);
+            if (status.error_code() == grpc::StatusCode::INVALID_ARGUMENT) {
+                continue;
+            }
+            detail::ensure_succeeded_(status);
+
             if (!response.succeeded()) {
                 auto& responses = *response.mutable_responses();
                 if (!responses.empty() && !responses[0].release_response_range()->kvs_size())
@@ -756,7 +774,7 @@ public:
         RangeResponse response;
         auto status = stub_->Range(&context, request, &response);
 
-        if (!status.ok()) throw ServiceError(status.error_message());
+        detail::ensure_succeeded_(status);
 
         if (!response.kvs_size()) throw NoEntry{};
 
