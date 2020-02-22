@@ -18,12 +18,13 @@ namespace liboffkv {
 
 namespace detail {
 
-void ensure_succeeded_(grpc::Status status) {
-    if (status.ok())
-        return;
+void ensure_succeeded_(grpc::Status status)
+{
+    if (status.ok()) return;
 
-    if (status.error_code() == grpc::StatusCode::UNAVAILABLE)
+    if (status.error_code() == grpc::StatusCode::UNAVAILABLE) {
         throw ConnectionLoss{};
+    }
     throw ServiceError{status.error_message()};
 }
 
@@ -345,7 +346,7 @@ private:
         }, range);
     }
 
-    enum {
+    enum class TBStatus {
         UNDEFINED,
         SUCCESS,
         FAILURE,
@@ -389,64 +390,65 @@ public:
 
     ETCDTransactionBuilder& on_success()
     {
-        status_ = SUCCESS;
+        status_ = TBStatus::SUCCESS;
         return *this;
     }
 
     ETCDTransactionBuilder& on_failure()
     {
-        status_ = FAILURE;
+        status_ = TBStatus::FAILURE;
         return *this;
     }
 
     ETCDTransactionBuilder& add_put_request(const std::string& key, const std::string& value,
                                             int64_t lease = 0, bool ignore_lease = false)
     {
-        if (status_ == UNDEFINED)
-            throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
-                                     "(use on_success() or on_failure())");
+        assert(status_ != TBStatus::UNDEFINED);
         auto request = new PutRequest();
         request->set_key(key);
         request->set_value(value);
 
-        if (ignore_lease)
-            request->set_ignore_lease(true);
-        else
-            request->set_lease(lease);
+        if (ignore_lease) request->set_ignore_lease(true);
+        else              request->set_lease(lease);
 
-        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+        auto requestOp = status_ == TBStatus::SUCCESS
+            ? txn_.add_success()
+            : txn_.add_failure();
         requestOp->set_allocated_request_put(request);
 
         return *this;
     }
 
-    ETCDTransactionBuilder& add_range_request(const std::variant<std::string, std::pair<std::string, std::string>>& range,
-                                              bool keys_only = false, int64_t limit = 1)
+    ETCDTransactionBuilder& add_range_request(
+        const std::variant<std::string, std::pair<std::string, std::string>>& range,
+        bool keys_only = false, int64_t limit = 1)
     {
-        if (status_ == UNDEFINED)
-            throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
-                                     "(use on_success() or on_failure())");
-        auto request = new RangeRequest();
+        assert(status_ != TBStatus::UNDEFINED);
 
+        auto request = new RangeRequest();
         set_key_range_(request, range);
         request->set_limit(limit);
         request->set_keys_only(keys_only);
 
-        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+        auto requestOp = status_ == TBStatus::SUCCESS
+            ? txn_.add_success()
+            : txn_.add_failure();
         requestOp->set_allocated_request_range(request);
 
         return *this;
     }
 
-    ETCDTransactionBuilder& add_delete_range_request(const std::variant<std::string, std::pair<std::string, std::string>>& range)
+    ETCDTransactionBuilder& add_delete_range_request(
+        const std::variant<std::string, std::pair<std::string, std::string>>& range)
     {
-        if (status_ == UNDEFINED)
-            throw std::runtime_error("ETCDTransactionBuilder error: try to add request not having defined the branch "
-                                     "(use on_success() or on_failure())");
+        assert(status_ != TBStatus::UNDEFINED);
+
         auto request = new DeleteRangeRequest();
         set_key_range_(request, range);
 
-        auto requestOp = status_ == SUCCESS ? txn_.add_success() : txn_.add_failure();
+        auto requestOp = status_ == TBStatus::SUCCESS
+            ? txn_.add_success()
+            : txn_.add_failure();
         requestOp->set_allocated_request_delete_range(request);
 
         return *this;
@@ -473,7 +475,8 @@ private:
     LeaseIssuer lease_issuer_;
 
 
-    // to simplify futher search of all direct and all children, each path will be transformed in the following way:
+    // to simplify further search of direct children and subtree range
+    // each path will be transformed in the following way:
     // before the __last__ segment special symbol '\0' is inserted:
     // as_path_string_("/prefix/a/b") -> "/prefix/a/\0b"
     std::string as_path_string_(const Path &path) const
@@ -492,23 +495,26 @@ private:
         return result.append("/\0", 2).append(segments.back());
     }
 
+    // key lies in the subtree of <root> iff it has form "{root}/something"
     auto make_subtree_range_(const Path& root)
     {
         auto path = static_cast<std::string>(prefix_ / root);
 
-        // key lies in the subtree iff it has form "{root}/something"
+        // any sequence beginning with '/'
         return std::make_pair(
             path + '/',
             path + static_cast<char>('/' + 1)
         );
     }
 
+    // "{root}/child" is a direct child of <root> iff the is no '/' in "{child}"
+    // or in forestated terminology, {child} is the last segment
+    // that means "{child}" begins with '\0'
     auto make_direct_children_range_(const Key& root)
     {
         auto path = static_cast<std::string>(prefix_ / root);
 
-        // if root has direct child {root}/child, then child must start with '\0', according as_path_string_ implementation
-        // oppositely, each key not being a direct child of root must not have '\0' after "{root}/"
+        // any sequence beginning with "/\0"
         return std::make_pair(
             path + '/' + '\0',
             path + '/' + static_cast<char>('\0' + 1)
@@ -542,10 +548,7 @@ private:
             : future_(std::move(future))
         {}
 
-        void wait() override
-        {
-            future_.get();
-        }
+        void wait() override { future_.get(); }
     };
 
 
@@ -830,7 +833,9 @@ public:
         }
 
         for (const auto& op : transaction.ops) {
-            std::visit([this, &expected_existence, &create_indices, &set_indices, &total_op_number, &bldr](auto&& arg) {
+            std::visit([this, &expected_existence,
+                        &create_indices, &set_indices,
+                        &total_op_number, &bldr](auto&& arg) {
                 auto path = as_path_string_(arg.key);
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, TxnOpCreate>) {
@@ -858,7 +863,11 @@ public:
                         .on_failure().add_range_request(path, true);
                     expected_existence.back().push_back(true);
 
-                    set_indices.push_back((++total_op_number)++);
+                    // skip put request
+                    ++total_op_number;
+
+                    // save range request index
+                    set_indices.push_back(total_op_number++);
                 } else if constexpr (std::is_same_v<T, TxnOpErase>) {
                     expected_existence.emplace_back();
 
@@ -881,8 +890,9 @@ public:
             // check if any check failed
             for (size_t i = 0; i < transaction.checks.size(); ++i) {
                 auto resp_i = responses[i].release_response_range();
-                if (resp_i->kvs_size() == 0 || transaction.checks[i].version != resp_i->kvs(0).version())
+                if (resp_i->kvs_size() == 0 || transaction.checks[i].version != resp_i->kvs(0).version()) {
                     throw TxnFailed{i};
+                }
             }
 
             size_t tr_checks_number = transaction.checks.size(), j = 0;
@@ -903,26 +913,23 @@ public:
         TransactionResult result;
 
         size_t i = 0, j = 0;
-        while (i < create_indices.size() && j < set_indices.size())
-            if (create_indices[i] < set_indices[j]) {
+        while (i != create_indices.size() || j != set_indices.size()) {
+            if (j == set_indices.size()
+                || (i != create_indices.size() && create_indices[i] < set_indices[j])) {
                 result.push_back(TxnOpResult{TxnOpResult::Kind::CREATE, 1});
                 ++i;
             } else {
-                result.push_back(TxnOpResult{TxnOpResult::Kind::SET, static_cast<int64_t>(
-                                               response.mutable_responses(
-                                                       set_indices[j])->release_response_range()
-                                                   ->kvs(0).version())});
+                result.push_back(TxnOpResult{
+                    TxnOpResult::Kind::SET,
+                    static_cast<int64_t>(
+                        response.mutable_responses(set_indices[j])
+                                ->release_response_range()
+                                ->kvs(0)
+                                .version())
+                });
                 ++j;
             }
-
-        while (i++ < create_indices.size())
-            result.push_back(TxnOpResult{TxnOpResult::Kind::CREATE, 1});
-
-        while (j < set_indices.size())
-            result.push_back(TxnOpResult{TxnOpResult::Kind::SET, static_cast<int64_t>(
-                                                response.mutable_responses(
-                                                        set_indices[j++])->release_response_range()
-                                                    ->kvs(0).version())});
+        }
         return result;
     }
 };

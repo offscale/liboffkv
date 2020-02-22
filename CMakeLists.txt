@@ -29,6 +29,9 @@ target_link_libraries (liboffkv INTERFACE ${CMAKE_THREAD_LIBS_INIT})
 if (BUILD_CLIB)
     add_library (liboffkv_c SHARED liboffkv/clib.cpp)
     target_link_libraries (liboffkv_c liboffkv)
+
+    install(TARGETS liboffkv_c DESTINATION lib)
+    install(FILES liboffkv/clib.h RENAME liboffkv.h DESTINATION include)
 endif ()
 
 set (SERVICE_TEST_ADDRESSES)

@@ -374,7 +374,8 @@ TEST_F(ClientFixture, commit_test)
     } catch (liboffkv::TxnFailed &e) {
         ASSERT_EQ(e.failed_op(), 1);
     } catch (std::exception &e) {
-        FAIL() << "Expected commit to throw TxnFailed, but it threw different exception:\n" << e.what();
+        FAIL() << "Expected commit to throw TxnFailed, "
+                  "but it threw different exception:\n" << e.what();
     }
 
     ASSERT_FALSE(client->exists("/key/child"));

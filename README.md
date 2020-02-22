@@ -339,9 +339,13 @@ Licensed under either of
 
 at your option.
 
-## lioffkv is available in other languages!!!
-- Rust: [rsoffkv](https://github.com/dimak24/rsoffkv)
-- Java: [liboffkv-java](https://github.com/raid-7/liboffkv-java)
+## liboffkv is available in other languages!!!
+- Rust: [rsoffkv](https://github.com/offscale/rsoffkv)
+- Java: [liboffkv-java](https://github.com/offscale/liboffkv-java)
+- Go: [goffkv](https://github.com/shdown/goffkv),
+[goffkv-etcd](https://github.com/shdown/goffkv-etcd),
+[goffkv-zk](https://github.com/shdown/goffkv-zk),
+[goffkv-consul](https://github.com/shdown/goffkv-consul)
 
 ### Contribution
 
