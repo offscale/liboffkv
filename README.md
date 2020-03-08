@@ -294,7 +294,7 @@ The library is currently tested on
 
   ```sh
   # from vcpkg root
-  vcpkg install ppconsul etcdcpp zkpp
+  vcpkg install ppconsul offscale-libetcd-cpp zkpp
   ```
 
   Installing all three packages is not required. See control flags at the next step.
