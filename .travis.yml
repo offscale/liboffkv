@@ -48,6 +48,7 @@ before_install:
   - eval "$OSX_ENABLE_GCC"
 
 before_script:
+  - git clone --depth=1 https://github.com/offscale/kv-travis-scripts travis
   - chmod ug+x $TRAVIS_BUILD_DIR/travis/*.sh
   - $TRAVIS_BUILD_DIR/travis/prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
