@@ -49,10 +49,13 @@ before_install:
 
 before_script:
   - git clone --depth=1 "https://github.com/offscale/kv-travis-scripts" "$HOME/travis"
-  - chmod ug+x "$HOME/travis"/*.sh
-  - bash "$HOME/travis/prepare_vcpkg.sh" "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
+  - pushd "$HOME/travis"
+  - ./prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
+  - ./bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
+  - ./bootstrap_consul.sh" "$SYSTEM_TRIPLET"
+  - ./bootstrap_zk.sh
   - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
-  - cd "$HOME/vcpkg"
+  - pushd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
   - eval "$OSX_ENABLE_CLANG"
   - travis_wait 25 ./vcpkg install gtest || "$HOME/travis/export_vcpkg_logs.sh"
@@ -62,12 +65,9 @@ before_script:
   - rm -rf buildtrees
 
 script:
-  - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && cd "$TRAVIS_BUILD_DIR/cmake-build-debug"
+  - mkdir "$TRAVIS_BUILD_DIR/cmake-build-debug" && pushd "$_"
   - cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" -DBUILD_TESTS=ON "${LIBOFFKV_CMAKE_FLAGS}" ..
   - cmake --build .
-  - bash "$HOME/travis/bootstrap_etcd.sh" "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
-  - bash "$HOME/travis/bootstrap_consul.sh" "$SYSTEM_TRIPLET"
-  - bash "$HOME/travis/bootstrap_zk.sh"
   - ctest --verbose
 
 after_failure:
