@@ -50,6 +50,7 @@ before_install:
 before_script:
   - git clone --depth=1 "https://github.com/offscale/kv-travis-scripts" "$HOME/travis"
   - pushd "$HOME/travis"
+  - ls -alR && pwd
   - ./prepare_vcpkg.bash "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash" "$SYSTEM_TRIPLET"
