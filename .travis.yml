@@ -14,7 +14,7 @@ matrix:
       env:
         - VCPKG_TRIPLET="x64-linux"
         - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bash"
         - SYSTEM_TRIPLET="linux"
         - PREFERED_ARCHIVE_EXTENSION="tar.gz"
         - LIBOFFKV_CMAKE_FLAGS=""
@@ -31,7 +31,7 @@ matrix:
         - MATRIX_EVAL="brew install gcc@7"
         - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
         - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bash"
         - SYSTEM_TRIPLET="darwin"
         - PREFERED_ARCHIVE_EXTENSION="zip"
         - LIBOFFKV_CMAKE_FLAGS=""
@@ -50,18 +50,18 @@ before_install:
 before_script:
   - git clone --depth=1 "https://github.com/offscale/kv-travis-scripts" "$HOME/travis"
   - pushd "$HOME/travis"
-  - ./prepare_vcpkg.sh "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
-  - ./bootstrap_etcd.sh "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
-  - ./bootstrap_consul.sh" "$SYSTEM_TRIPLET"
-  - ./bootstrap_zk.sh
+  - ./prepare_vcpkg.bash "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
+  - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
+  - ./bootstrap_consul.bash" "$SYSTEM_TRIPLET"
+  - ./bootstrap_zk.bash
   # - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
   - pushd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
   - eval "$OSX_ENABLE_CLANG"
-  - travis_wait 25 ./vcpkg install gtest || "$HOME/travis/export_vcpkg_logs.sh"
-  - travis_wait 34 ./vcpkg install ppconsul || "$HOME/travis/export_vcpkg_logs.sh"
-  - travis_wait 25 ./vcpkg install zkpp || "$HOME/travis/export_vcpkg_logs.sh"
-  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/travis/export_vcpkg_logs.sh"
+  - travis_wait 25 ./vcpkg install gtest || "$HOME/travis/export_vcpkg_logs.bash"
+  - travis_wait 34 ./vcpkg install ppconsul || "$HOME/travis/export_vcpkg_logs.bash"
+  - travis_wait 25 ./vcpkg install zkpp || "$HOME/travis/export_vcpkg_logs.bash"
+  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/travis/export_vcpkg_logs.bash"
   - rm -rf buildtrees
 
 script:
@@ -71,4 +71,4 @@ script:
   - ctest --verbose
 
 after_failure:
-  - "$HOME/travis/send_status_message.sh"
+  - "$HOME/travis/send_status_message.bash"
