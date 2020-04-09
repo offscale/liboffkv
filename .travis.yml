@@ -49,9 +49,9 @@ before_install:
 
 before_script:
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
-  - mv kv-travis-scripts-master kv-travis-scripts
+  - mv kv-travis-scripts-master "$HOME/travis"
   - pushd "$HOME/travis"
-  - ls -lR
+  - find . -type f -exec sha256sum {} \;
   - ./prepare_vcpkg.bash "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash" "$SYSTEM_TRIPLET"
