@@ -48,6 +48,7 @@ before_install:
   - eval "$OSX_ENABLE_GCC"
 
 before_script:
+  - set +x
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
   - mv kv-travis-scripts-master "$HOME/travis"
   - pushd "$HOME/travis"
