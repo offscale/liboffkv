@@ -14,7 +14,7 @@ matrix:
       env:
         - VCPKG_TRIPLET="x64-linux"
         - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh -disableMetrics"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
         - SYSTEM_TRIPLET="linux"
         - PREFERRED_ARCHIVE_EXTENSION="tar.gz"
         - LIBOFFKV_CMAKE_FLAGS=""
@@ -31,7 +31,7 @@ matrix:
         - MATRIX_EVAL="brew install gcc@7"
         - OSX_ENABLE_GCC="CC=gcc-7 && CXX=g++-7"
         - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
-        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh -disableMetrics"
+        - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh"
         - SYSTEM_TRIPLET="darwin"
         - PREFERRED_ARCHIVE_EXTENSION="zip"
         - LIBOFFKV_CMAKE_FLAGS=""
@@ -44,7 +44,7 @@ matrix:
     #     - PREFERRED_ARCHIVE_EXTENSION=zip
 
 before_install:
-  - eval "${MATRIX_EVAL}"
+  - eval "$MATRIX_EVAL"
   - eval "$OSX_ENABLE_GCC"
 
 before_script:
@@ -52,6 +52,7 @@ before_script:
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
   - mv kv-travis-scripts-master "$HOME/travis"
   - pushd "$HOME/travis"
+  - ls -lR
   - ./prepare_vcpkg.bash "$HOME/vcpkg/" "$VCPKG_BOOT_EVAL"
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
