@@ -6,6 +6,7 @@ git:
 cache:
   directories:
     - "$HOME/vcpkg"
+    - "$HOME/Downloads"
 
 matrix:
   include:
@@ -50,9 +51,9 @@ before_install:
 before_script:
   - set +x
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
-  - mv kv-travis-scripts-master "$HOME/travis"
-  - pushd "$HOME/travis"
-  - for script in *.bash; do chmod +x "$script" && sha256sum "$script"; done
+  - mv kv-travis-scripts-master "$HOME/scripts"
+  - pushd "$HOME/scripts"
+  - chmod +x *.bash
   - ./prepare_vcpkg.bash "$HOME/vcpkg/" "$VCPKG_BOOT_EVAL"
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
@@ -61,10 +62,11 @@ before_script:
   - pushd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
   - eval "$OSX_ENABLE_CLANG"
-  - travis_wait 25 ./vcpkg install gtest || "$HOME/travis/export_vcpkg_logs.bash"
-  - travis_wait 34 ./vcpkg install ppconsul || "$HOME/travis/export_vcpkg_logs.bash"
-  - travis_wait 25 ./vcpkg install zkpp || "$HOME/travis/export_vcpkg_logs.bash"
-  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/travis/export_vcpkg_logs.bash"
+  - travis_wait 25 ./vcpkg install gtest || "$HOME/scripts/export_vcpkg_logs.bash"
+  - travis_wait 34 ./vcpkg install ppconsul || "$HOME/scripts/export_vcpkg_logs.bash"
+  - travis_wait 25 ./vcpkg install zkpp || "$HOME/scripts/export_vcpkg_logs.bash"
+  - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/scripts/export_vcpkg_logs.bash"
+  - ls -lR
   - rm -rf buildtrees
 
 script:
@@ -74,4 +76,4 @@ script:
   - ctest --verbose
 
 after_failure:
-  - "$HOME/travis/send_status_message.bash"
+  - "$HOME/scripts/send_status_message.bash"
