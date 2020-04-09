@@ -52,7 +52,7 @@ before_script:
   - curl -sL https://github.com/offscale/kv-travis-scripts/archive/master.zip | jar xv
   - mv kv-travis-scripts-master "$HOME/travis"
   - pushd "$HOME/travis"
-  - chmod +x *.bash
+  - for script in *.bash; do chmod +x "$script" && sha256sum "$script"; done
   - ./prepare_vcpkg.bash "$HOME/vcpkg/" "$VCPKG_BOOT_EVAL"
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
