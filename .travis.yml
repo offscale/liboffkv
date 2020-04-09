@@ -55,7 +55,7 @@ before_script:
   - find -type f -name '*.bash' -exec sh -c 'chmod +x "$0" && sha256sum "$0"' {} \;
   - ./prepare_vcpkg.bash "$HOME/vcpkg/" "${VCPKG_BOOT_EVAL}"
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
-  - ./bootstrap_consul.bash" "$SYSTEM_TRIPLET"
+  - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
   - ./bootstrap_zk.bash
   # - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
   - pushd "$HOME/vcpkg"
