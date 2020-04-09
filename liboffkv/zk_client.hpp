@@ -287,7 +287,7 @@ public:
                 // key does not exist
                 if (e.failed_op_index() == 0) throw NoEntry{};
                 // version mismatch
-                if (e.failed_op_index() == 1) return;
+                else if (e.failed_op_index() == 1) return;
 
             } catch (zk::error& e) {
                 rethrow_(e);

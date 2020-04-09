@@ -69,21 +69,21 @@ static int to_errcode(const std::exception &e)
 {
     if (dynamic_cast<const liboffkv::InvalidAddress *>(&e))
         return OFFKV_EADDR;
-    if (dynamic_cast<const liboffkv::InvalidKey *>(&e))
+    else if (dynamic_cast<const liboffkv::InvalidKey *>(&e))
         return OFFKV_EKEY;
-    if (dynamic_cast<const liboffkv::NoEntry *>(&e))
+    else if (dynamic_cast<const liboffkv::NoEntry *>(&e))
         return OFFKV_ENOENT;
-    if (dynamic_cast<const liboffkv::EntryExists *>(&e))
+    else if (dynamic_cast<const liboffkv::EntryExists *>(&e))
         return OFFKV_EEXIST;
-    if (dynamic_cast<const liboffkv::NoChildrenForEphemeral *>(&e))
+    else if (dynamic_cast<const liboffkv::NoChildrenForEphemeral *>(&e))
         return OFFKV_EEPHEM;
-    if (dynamic_cast<const liboffkv::ConnectionLoss *>(&e))
+    else if (dynamic_cast<const liboffkv::ConnectionLoss *>(&e))
         return OFFKV_ECONN;
-    if (dynamic_cast<const liboffkv::TxnFailed *>(&e))
+    else if (dynamic_cast<const liboffkv::TxnFailed *>(&e))
         return OFFKV_ETXN;
-    if (dynamic_cast<const liboffkv::ServiceError *>(&e))
+    else if (dynamic_cast<const liboffkv::ServiceError *>(&e))
         return OFFKV_ESRV;
-    if (dynamic_cast<const std::bad_alloc *>(&e))
+    else if (dynamic_cast<const std::bad_alloc *>(&e))
         return OFFKV_ENOMEM;
     throw e;
 }
