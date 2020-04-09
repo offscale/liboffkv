@@ -16,7 +16,7 @@ matrix:
         - MATRIX_EVAL="export CC=gcc-8 && export CXX=g++-8"
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh -disableMetrics"
         - SYSTEM_TRIPLET="linux"
-        - PREFERED_ARCHIVE_EXTENSION="tar.gz"
+        - PREFERRED_ARCHIVE_EXTENSION="tar.gz"
         - LIBOFFKV_CMAKE_FLAGS=""
       addons:
         apt:
@@ -33,7 +33,7 @@ matrix:
         - OSX_ENABLE_CLANG="CC=clang && CXX=clang++"
         - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.sh -disableMetrics"
         - SYSTEM_TRIPLET="darwin"
-        - PREFERED_ARCHIVE_EXTENSION="zip"
+        - PREFERRED_ARCHIVE_EXTENSION="zip"
         - LIBOFFKV_CMAKE_FLAGS=""
       sudo: true
     # - os: windows
@@ -41,7 +41,7 @@ matrix:
     #     - VCPKG_TRIPLET=x64-windows
     #     - VCPKG_BOOT_EVAL="./bootstrap-vcpkg.bat"
     #     - SYSTEM_TRIPLET=windows
-    #     - PREFERED_ARCHIVE_EXTENSION=zip
+    #     - PREFERRED_ARCHIVE_EXTENSION=zip
 
 before_install:
   - eval "${MATRIX_EVAL}"
