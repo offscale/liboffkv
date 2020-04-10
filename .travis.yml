@@ -19,6 +19,7 @@ matrix:
         - SYSTEM_TRIPLET="linux"
         - PREFERRED_ARCHIVE_EXTENSION="tar.gz"
         - LIBOFFKV_CMAKE_FLAGS=""
+        - BADGE=linux
       addons:
         apt:
           sources:
@@ -36,6 +37,7 @@ matrix:
         - SYSTEM_TRIPLET="darwin"
         - PREFERRED_ARCHIVE_EXTENSION="zip"
         - LIBOFFKV_CMAKE_FLAGS=""
+        - BADGE=osx
       sudo: true
     # - os: windows
     #   env:
@@ -58,7 +60,6 @@ before_script:
   - ./bootstrap_etcd.bash "$SYSTEM_TRIPLET" "$PREFERRED_ARCHIVE_EXTENSION"
   - ./bootstrap_consul.bash "$SYSTEM_TRIPLET"
   - ./bootstrap_zk.bash
-  # - cp -r "$TRAVIS_BUILD_DIR/vcpkg/ports" "$HOME/vcpkg/"
   - pushd "$HOME/vcpkg"
   - travis_wait 30 ./vcpkg upgrade --no-dry-run
   - eval "$OSX_ENABLE_CLANG"
@@ -66,7 +67,6 @@ before_script:
   - travis_wait 34 ./vcpkg install ppconsul || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 25 ./vcpkg install zkpp || "$HOME/scripts/export_vcpkg_logs.bash"
   - travis_wait 35 ./vcpkg install offscale-libetcd-cpp || "$HOME/scripts/export_vcpkg_logs.bash"
-  - ls -lR
   - rm -rf buildtrees
 
 script:

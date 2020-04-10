@@ -1,7 +1,8 @@
 liboffkv
 ========
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.org/offscale/liboffkv.svg?branch=master)](https://travis-ci.org/offscale/liboffkv)
+[![Travis CI](http://badges.herokuapp.com/travis/offscale/liboffkv?branch=master&label=OSX&env=BADGE=osx&style=flat-square)](https://travis-ci.org/offscale/liboffkv)
+[![Travis CI](http://badges.herokuapp.com/travis/offscale/liboffkv?branch=master&label=Linux&env=BADGE=linux&style=flat-square)](https://travis-ci.org/offscale/liboffkv)
 
 #### The library is designed to provide a uniform interface for three distributed KV storages: etcd, ZooKeeper and Consul.
 
@@ -285,11 +286,6 @@ The library is currently tested on
   - [vcpkg](https://docs.microsoft.com/en-us/cpp/build/vcpkg)
 
 ## Developer workflow
-
-- Copy all ports from `liboffkv/vcpkg/ports/` to `[vcpkg root]/ports` or create corresponding symbolic links.
-
-  Note that the original vcpkg curl port is broken. Use fixed version from this repo.
-
 - Install dependencies
 
   ```sh
@@ -342,14 +338,13 @@ at your option.
 ## liboffkv is available in other languages!!!
 - Rust: [rsoffkv](https://github.com/offscale/rsoffkv)
 - Java: [liboffkv-java](https://github.com/offscale/liboffkv-java)
-- Go: [goffkv](https://github.com/shdown/goffkv),
-[goffkv-etcd](https://github.com/shdown/goffkv-etcd),
-[goffkv-zk](https://github.com/shdown/goffkv-zk),
-[goffkv-consul](https://github.com/shdown/goffkv-consul)
+- Go: [goffkv](https://github.com/offscale/goffkv),
+[goffkv-etcd](https://github.com/offscale/goffkv-etcd),
+[goffkv-zk](https://github.com/offscale/goffkv-zk),
+[goffkv-consul](https://github.com/offscale/goffkv-consul)
 
 ### Contribution
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
-
