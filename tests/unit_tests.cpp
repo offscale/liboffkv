@@ -185,6 +185,8 @@ TEST_F(ClientFixture, set_test)
     int64_t initialVersion = client->create("/key", "value");
     int64_t version = client->set("/key", "newValue");
 
+    client->set("/another", "anything");
+
     auto result = client->get("/key");
 
     ASSERT_GT(version, initialVersion);
