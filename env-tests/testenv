@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+
+CONSUL_IMAGE="consul:1.7"
+ZK_IMAGE="zookeeper:3.6"
+ETCD_IMAGE="bitnami/etcd:3"
+
+SCRIPT_ROOT="$(dirname "$(readlink "$0" || echo "$0")")"
+set -eu
+
+die() {
+    printf >&2 '%s\n' "$@"
+    exit 1
+}
+
+silent() {
+    "$@" &> /dev/null || true
+}
+
+usage() {
+die "Usage: testenv <command> <options>
+
+Commands:
+
+ prepare                      fetch and build images
+ run <opts>                   restarts environment
+    Options:
+    -n <service>:<count>
+        Specify number of instances for <service>. Default is 1.
+ stop                         stops environment
+ status                       show testenv networks and containers
+ test <opts> [args...]        run tests against the environment
+    The command builds docker image and runs it. If directory does not contain Dockerfile, Dockerfile-template from script directory is used by default.
+    Options:
+    -d <dirname>
+        Specify source directory. The current directory is used by default.
+    -g <args>
+        Specify cmake generation arguments. It is equivalent to cmake_generate_args=<args>.
+    -b <args>
+        Specify cmake build arguments. It is equivalent to cmake_build_args=<args>.
+    -r <args>
+        Specify run command.
+    -s <service>[:<count>]
+        Specify service. Count determines the number of server addresses passed by command line arguments to the container. The default value equals to the number of running instances. If count is greater than the number of running instances, additional fake addresses are generated.
+    Arguments:
+        Dockerfile-template accepts the following arguments:
+        cmake_generate_args
+        cmake_build_args
+        generate_cmd
+        build_cmd
+        run_cmd
+ clear [-a]                   remove testenv images and containers
+    Options:
+    -a
+        Remove service and base images too. Only testing images are deleted by default.
+
+
+Naming
+testenv allows configuring names of docker entities. The naming configuration files are looked up in the following order:
+ naming.conf in current directory
+ naming.conf in script directory
+ naming.def.conf in script directory
+"
+}
+
+
+rm_network() {
+    local net=`docker network ls -q --filter=name=^"$NETWORK"'$'`
+    for x in $net; do
+        docker network rm "$x" > /dev/null
+    done
+}
+
+get_prefixed_containers() { # all (stopped too)
+    docker container ls -q -a --filter=name="^$1"
+}
+
+get_prefixed_containers_names() { # running only
+    docker container ls --format "{{.Names}}" --filter=name="^$1"
+}
+
+is_running() {
+    local nets=`docker network ls -q --filter=name=^"$NETWORK"'$' | wc -l`
+    local tests=`get_prefixed_containers_names $TESTING_CONTAINER_PREFIX | wc -l`
+    local services=`get_prefixed_containers_names $SERVICE_CONTAINER_PREFIX | wc -l`
+    res=$(( nets + tests + services ))
+    if (( $res == 0 )); then
+        return 1
+    else
+        return 0
+    fi
+}
+
+destroy_containers() {
+    local testing_containers=`get_prefixed_containers $TESTING_CONTAINER_PREFIX`
+    local service_containers=`get_prefixed_containers $SERVICE_CONTAINER_PREFIX`
+    for container in $testing_containers $service_containers; do
+        silent docker container kill "$container"
+        silent docker container rm "$container"
+    done
+}
+
+run_services() {
+    # expect env vars n_zk, n_etcd, n_consul
+    if (( n_consul > 1 )); then
+        echo "Running more than 1 Consul agents is meaningless" >&2
+    fi
+
+    # starting Consuls
+    for i in `seq 1 $n_consul`; do
+        if (( $i == 1 )); then
+            docker run -d --rm --network="$NETWORK" --name="${SERVICE_CONTAINER_PREFIX}consul$i" \
+                       --network-alias="consul$i" --hostname="consul$i" \
+                       -e CONSUL_BIND_INTERFACE=eth0 "$CONSUL_IMAGE"
+        else
+            docker run -d --rm --network="$NETWORK" --name="${SERVICE_CONTAINER_PREFIX}consul$i" \
+                       --network-alias="consul$i"  --hostname="consul$i" \
+                       -e CONSUL_BIND_INTERFACE=eth0 "$CONSUL_IMAGE" agent -dev -join=consul1 
+        fi
+    done
+    
+    # starting ZooKeepers
+    local zk_servers=""
+    for i in `seq 1 $n_zk`; do
+        zk_servers="$zk_servers server.$i=zookeeper$i:2888:3888;2181"
+    done
+    for i in `seq 1 $n_zk`; do
+        docker run -d --rm --network="$NETWORK" --name="${SERVICE_CONTAINER_PREFIX}zk$i" \
+                   --network-alias="zookeeper$i" --hostname="zookeeper$i" \
+                   -e ZOO_MY_ID=$i -e "ZOO_SERVERS=$zk_servers" "$ZK_IMAGE"
+    done
+
+    # starting etcds
+    local etcd_servers=""
+    for i in `seq 1 $n_etcd`; do
+        local comma=","
+        if (( $i == 1 )); then
+            comma=""
+        fi
+        etcd_servers="${etcd_servers}${comma}etcd$i=http://etcd$i:2380"
+    done
+    for i in `seq 1 $n_etcd`; do
+        docker run -d --rm --network="$NETWORK" --name="${SERVICE_CONTAINER_PREFIX}etcd$i" \
+                   --network-alias="etcd$i" --hostname="etcd$i" \
+                   -e "ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd$i:2380" -e ALLOW_NONE_AUTHENTICATION=yes \
+                   -e "ETCD_NAME=etcd$i" -e "ETCD_ADVERTISE_CLIENT_URLS=http://etcd$i:2379" \
+                   -e "ETCD_INITIAL_CLUSTER=$etcd_servers" -e ETCD_INITIAL_CLUSTER_STATE=new "$ETCD_IMAGE"
+    done
+
+    sleep 3
+}
+
+find_free_testing_container_name() {
+    for i in `seq 1 1024`; do
+        local name="${TESTING_CONTAINER_PREFIX}$i"
+        local k=`docker container ls -q -a --filter=name="^${name}$" | wc -l`
+        if (( $k == 0 )); then
+            echo -n "$name"
+            return
+        fi
+    done
+    die "No free names"
+}
+
+find_free_testing_image_name() {
+    for i in `seq 1 1024`; do
+        local name="${TESTING_IMAGE_PREFIX}$i"
+        local k=`docker image ls -q $name | wc -l`
+        if (( $k == 0 )); then
+            echo -n "$name"
+            return
+        fi
+    done
+    die "No free names"
+}
+
+collect_service_addresses() {
+    local service="$1"
+    local count="$2"
+    local hostbase
+    local port
+    local scheme="$service"
+    case "$service" in
+        zk)
+            hostbase=zookeeper
+            port=2181
+        ;;
+        etcd)
+            hostbase=etcd
+            port=2379
+        ;;
+        consul)
+            hostbase=consul
+            port=8500
+        ;;
+        *) die Unknown service ;;
+    esac
+
+    local containers=`docker container ls --format "{{.Names}}" --filter "name=^${SERVICE_CONTAINER_PREFIX}${service}"`
+    local max_id="0"
+    local i="0"
+    for name in $containers; do
+        if [[ -n "$count" ]] && (( $i >= $count )); then
+            break
+        fi
+
+        local id=`echo "$name" | awk '{ print substr($1, match($1, /[[:digit:]]+$/)) }'`
+        echo "${scheme}://${hostbase}${id}:${port}"
+
+        if (( $id > $max_id )); then max_id="$id" ; fi # max_id = max(id, max_id)
+        i=$(( i + 1 ))
+    done
+    if [[ -n "$count" ]]; then
+        for j in `seq $((i + 1)) $count`; do
+            max_id=$(( max_id + 1 ))
+            echo "${scheme}://${hostbase}${max_id}:${port}"
+        done
+    fi
+}
+
+run_tests() {
+    local image=$1
+    local run_cmd=$2
+    local name=`find_free_testing_container_name`
+    local services=(zk consul etcd)
+    local warn_unavailable=""
+    shift 2
+    if (( $# != 0 )); then
+        services=("$@")
+        warn_unavailable=true
+    fi
+
+    for sarg in "${services[@]}"; do
+        local service=`echo "$sarg" | awk 'BEGIN {FS=":"} { print $1 }'`
+        local count=`echo "$sarg" | awk 'BEGIN {FS=":"} { print $2 }'`
+
+        local addresses=`collect_service_addresses "$service" "$count"`
+        if [[ -z "$addresses" ]] && [[ ! "$count" == 0 ]]; then
+            if [[ -n "$warn_unavailable" ]]; then
+                echo "$service is not started. Take a look at testenv run" >&2
+            fi
+            continue
+        fi
+
+        echo "Running against $service"
+        echo "Addresses:" $addresses
+        docker run --rm -it --network="$NETWORK" --cap-add NET_ADMIN --name="$name" "$image" $run_cmd $addresses
+    done
+}
+
+subcmd_test() {
+    local dir="."
+    local buildargs=()
+    local services=""
+    local run_cmd=""
+    while getopts "g:b:r:d:s:" opt; do
+        case "$opt" in
+            g)
+                buildargs=("${buildargs[@]}" "--build-arg=cmake_generate_args=$OPTARG")
+            ;;
+            b)
+                buildargs=("${buildargs[@]}" "--build-arg=cmake_build_args=$OPTARG")
+            ;;
+            r)
+                run_cmd="$OPTARG"
+            ;;
+            d)
+                dir="$OPTARG"
+            ;;
+            s)
+                if [[ ! "$OPTARG" =~ ^[[:alpha:]]+(:[[:digit:]]+)?$ ]]; then
+                    usage
+                fi
+                services="$services $OPTARG"
+            ;;
+            *) usage ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+    for arg in "$@"; do
+        buildargs=("${buildargs[@]}" "--build-arg=$arg")
+    done
+
+    local dockerfile="$SCRIPT_ROOT/Dockerfile-template"
+    if [[ -e "${dir}/Dockerfile" ]]; then
+        dockerfile="${dir}/Dockerfile"
+    fi
+
+    local name=`find_free_testing_image_name`
+
+    docker build -t "$name" -f "$dockerfile" --build-arg "parent=$TEST_BASE_IMAGE" \
+            "${buildargs[@]}" "$dir"
+
+    run_tests $name "$run_cmd" $services
+}
+
+subcmd_status() {
+    if (( $# != 0 )); then
+        usage
+    fi
+
+    local net=`docker network ls -q --filter=name=^"$NETWORK"'$' | wc -l`
+    local net_status
+    if (( $net == 1 )); then
+        net_status="started"
+    else
+        net_status="absent"
+    fi
+
+    echo "Network $NETWORK: $net_status"
+    echo "Service containers: " `get_prefixed_containers_names $SERVICE_CONTAINER_PREFIX`
+    echo "Testing containers: " `get_prefixed_containers_names $TESTING_CONTAINER_PREFIX`
+}
+
+subcmd_stop() {
+    if (( $# != 0 )); then
+        usage
+    fi
+
+    destroy_containers
+    rm_network
+}
+
+subcmd_run() {
+    local n_consul=1
+    local n_zk=1
+    local n_etcd=1
+    while getopts "n:" opt; do
+        case "$opt" in
+            n)
+                local service=`echo "$OPTARG" | awk 'BEGIN {FS=":"} /[[:alpha:]]+:[[:digit:]]+/ { print $1 }'`
+                local count=`echo "$OPTARG" | awk 'BEGIN {FS=":"} /[[:alpha:]]+:[[:digit:]]+/ { print $2 }'`
+                case "$service" in
+                    zk) n_zk=$count ;;
+                    consul) n_consul=$count ;;
+                    etcd) n_etcd=$count ;;
+                    *) usage ;;
+                esac
+            ;;
+            *) usage ;;
+        esac
+    done
+    if (( $OPTIND != $# + 1 )); then
+        usage
+    fi
+
+
+    echo -n "All testenv containers will be destroyed. Continue in"
+    for x in 3 2 1; do
+        echo -n " $x"
+        sleep 1
+    done
+    echo
+
+    destroy_containers
+    rm_network
+
+    docker network create -d bridge "$NETWORK" > /dev/null
+    n_consul=$n_consul n_etcd=$n_etcd n_zk=$n_zk run_services
+}
+
+
+subcmd_prepare() {
+    if (( $# != 0 )); then
+        usage
+    fi
+
+    docker pull "$CONSUL_IMAGE"
+    docker pull "$ZK_IMAGE"
+    docker pull "$ETCD_IMAGE"
+    docker build -t "$TEST_BASE_IMAGE" "$SCRIPT_ROOT/base"
+}
+
+subcmd_clear() {
+    local all=""
+    while getopts "a" opt; do
+        case "$opt" in
+            a) all=true ;;
+            *) usage ;;
+        esac
+    done
+    if (( $OPTIND != $# + 1 )); then
+        usage
+    fi
+
+    if is_running; then
+        die "Stop environment before clean up"
+    fi
+
+    destroy_containers
+    local images=`docker image ls --format="{{.Repository}}" "${TESTING_IMAGE_PREFIX}*"`
+    local num_images=`echo -n "$images" | wc -l`
+    if (( $num_images > 0 )); then
+        echo $images | xargs docker image rm
+    fi
+
+    if [[ -n "$all" ]]; then
+        docker image rm "$CONSUL_IMAGE" "$ETCD_IMAGE" "$ZK_IMAGE" "$TEST_BASE_IMAGE"
+        echo '`docker system prune` may help to reclaim more space'
+    fi
+}
+
+
+if (( $# < 1 )); then
+    usage
+fi
+SUBCMD="$1"
+
+if [[ -e "${SCRIPT_ROOT}/naming.def.conf" ]]; then
+    source "${SCRIPT_ROOT}/naming.def.conf"
+fi
+if [[ -e "${SCRIPT_ROOT}/naming.conf" ]]; then
+    source "${SCRIPT_ROOT}/naming.conf"
+fi
+if [[ -e "naming.conf" ]]; then
+    source "naming.conf"
+fi
+
+
+
+case "$SUBCMD" in
+    prepare)
+        subcmd_prepare "${@:2}"
+    ;;
+    run)
+        subcmd_run "${@:2}"
+    ;;
+    stop)
+        subcmd_stop "${@:2}"
+    ;;
+    status)
+        subcmd_status "${@:2}"
+    ;;
+    test)
+        subcmd_test "${@:2}"
+    ;;
+    clear)
+        subcmd_clear "${@:2}"
+    ;;
+    *) usage ;;
+esac

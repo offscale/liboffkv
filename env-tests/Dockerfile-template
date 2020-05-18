@@ -1,0 +1,13 @@
+ARG parent
+FROM $parent
+
+COPY . /test/app
+WORKDIR /test/app
+
+ARG cmake_generate_args=""
+ARG cmake_build_args=""
+ARG generate_cmd="cmake -DCMAKE_TOOLCHAIN_FILE=/test/vcpkg/scripts/buildsystems/vcpkg.cmake $cmake_generate_args ."
+ARG build_cmd="cmake --build $cmake_build_args ."
+
+RUN $generate_cmd
+RUN $build_cmd

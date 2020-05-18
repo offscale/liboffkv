@@ -145,7 +145,7 @@ TEST_F(ClientFixture, create_with_lease_test)
     using namespace std::chrono_literals;
 
     {
-        auto local_client = liboffkv::open(SERVICE_ADDRESS, "/unitTests");
+        auto local_client = liboffkv::open(server_addr, "/unitTests");
         ASSERT_NO_THROW(local_client->create("/key", "value", true));
 
         std::this_thread::sleep_for(25s);
@@ -156,7 +156,7 @@ TEST_F(ClientFixture, create_with_lease_test)
     std::this_thread::sleep_for(25s);
 
     {
-        auto local_client = liboffkv::open(SERVICE_ADDRESS, "/unitTests");
+        auto local_client = liboffkv::open(server_addr, "/unitTests");
         ASSERT_FALSE(client->exists("/key"));
     }
 }

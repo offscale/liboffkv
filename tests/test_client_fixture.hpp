@@ -10,7 +10,7 @@
 
 #include <liboffkv/liboffkv.hpp>
 
-
+extern std::string server_addr;
 
 class ClientFixture : public ::testing::Test {
 public:
@@ -18,7 +18,6 @@ public:
 
     static void SetUpTestCase()
     {
-        std::string server_addr = SERVICE_ADDRESS;
         std::cout << "\n\n ----------------------------------------------------- \n\n";
         std::cout << "  Using server address : " << server_addr << "\n";
         std::cout << "\n ----------------------------------------------------- \n\n\n";
