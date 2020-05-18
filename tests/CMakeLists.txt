@@ -1,13 +1,13 @@
-find_package (GTest REQUIRED)
+find_package (GTest CONFIG REQUIRED)
 
 function (create_test)
     set (ONE_VAL_ARGS NAME)
     set (MULTI_VAL_ARGS FILES COMPILE_DEFINITIONS LIBS)
     cmake_parse_arguments (ARG "" "${ONE_VAL_ARGS}" "${MULTI_VAL_ARGS}" ${ARGN})
 
-    add_executable (test_${ARG_NAME} ${ARG_FILES})
+    add_executable (test_${ARG_NAME} ${ARG_FILES} unit_tests_main.cpp)
     target_link_libraries (test_${ARG_NAME} liboffkv)
-    target_link_libraries (test_${ARG_NAME} ${GTEST_BOTH_LIBRARIES})
+    target_link_libraries (test_${ARG_NAME} GTest::gtest)
     target_link_libraries (test_${ARG_NAME} ${ARG_LIBS})
 
     if (NOT "${ARG_COMPILE_DEFINITIONS}" STREQUAL "")
