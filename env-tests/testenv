@@ -39,8 +39,8 @@ Commands:
         Specify cmake build arguments. It is equivalent to cmake_build_args=<args>.
     -r <args>
         Specify run command.
-    -s <service>
-        Specify service.
+    -s <service>[:<count>]
+        Specify service. Count determines the number of server addresses passed by command line arguments to the container. The default value equals to the number of running instances. If count is greater than the number of running instances, additional fake addresses are generated.
     Arguments:
         Dockerfile-template accepts the following arguments:
         cmake_generate_args
@@ -175,6 +175,7 @@ find_free_testing_image_name() {
 
 collect_service_addresses() {
     local service="$1"
+    local count="$2"
     local hostbase
     local port
     local scheme="$service"
@@ -193,11 +194,27 @@ collect_service_addresses() {
         ;;
         *) die Unknown service ;;
     esac
+
     local containers=`docker container ls --format "{{.Names}}" --filter "name=^${SERVICE_CONTAINER_PREFIX}${service}"`
+    local max_id="0"
+    local i="0"
     for name in $containers; do
+        if [[ -n "$count" ]] && (( $i >= $count )); then
+            break
+        fi
+
         local id=`echo "$name" | awk '{ print substr($1, match($1, /[[:digit:]]+$/)) }'`
         echo "${scheme}://${hostbase}${id}:${port}"
+
+        if (( $id > $max_id )); then max_id="$id" ; fi # max_id = max(id, max_id)
+        i=$(( i + 1 ))
     done
+    if [[ -n "$count" ]]; then
+        for j in `seq $((i + 1)) $count`; do
+            max_id=$(( max_id + 1 ))
+            echo "${scheme}://${hostbase}${max_id}:${port}"
+        done
+    fi
 }
 
 run_tests() {
@@ -212,9 +229,12 @@ run_tests() {
         warn_unavailable=true
     fi
 
-    for service in "${services[@]}"; do
-        local addresses=`collect_service_addresses "$service"`
-        if [[ -z "$addresses" ]]; then
+    for sarg in "${services[@]}"; do
+        local service=`echo "$sarg" | awk 'BEGIN {FS=":"} { print $1 }'`
+        local count=`echo "$sarg" | awk 'BEGIN {FS=":"} { print $2 }'`
+
+        local addresses=`collect_service_addresses "$service" "$count"`
+        if [[ -z "$addresses" ]] && [[ ! "$count" == 0 ]]; then
             if [[ -n "$warn_unavailable" ]]; then
                 echo "$service is not started. Take a look at testenv run" >&2
             fi
@@ -222,6 +242,7 @@ run_tests() {
         fi
 
         echo "Running against $service"
+        echo "Addresses:" $addresses
         docker run --rm -it --network="$NETWORK" --name="$name" "$image" $run_cmd $addresses
     done
 }
@@ -246,6 +267,9 @@ subcmd_test() {
                 dir="$OPTARG"
             ;;
             s)
+                if [[ ! "$OPTARG" =~ ^[[:alpha:]]+(:[[:digit:]]+)?$ ]]; then
+                    usage
+                fi
                 services="$services $OPTARG"
             ;;
             *) usage ;;
