@@ -8,6 +8,7 @@ option (ENABLE_ZK "Build with ZooKeeper support" ON)
 option (ENABLE_ETCD "Build with etcd support" ON)
 option (ENABLE_CONSUL "Build with Consul support" ON)
 option (BUILD_TESTS "Build library tests" ON)
+option (BUILD_ENV_TESTS "Build environment dependent library tests" OFF)
 option (BUILD_CLIB "Build C library" OFF)
 set(SANITIZE "" CACHE STRING "Build tests with sanitizer")
 
@@ -65,7 +66,7 @@ if (ENABLE_ETCD)
     list (APPEND SERVICE_TEST_ADDRESSES "etcd://localhost:2379")
 endif ()
 
-if (BUILD_TESTS)
+if (BUILD_TESTS OR BUILD_ENV_TESTS)
     # google tests
     enable_testing ()
     add_subdirectory (tests)
