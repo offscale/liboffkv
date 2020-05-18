@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 #include <string>
 
+#ifndef SERVICE_ADDRESS
+#define SERVICE_ADDRESS ""
+#endif
+
 std::string server_addr;
 
 int main(int argc, char **argv) {

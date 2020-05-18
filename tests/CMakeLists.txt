@@ -24,10 +24,20 @@ if (SANITIZE)
     set (CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=${SANITIZE}")
 endif()
 
-foreach (service_addr ${SERVICE_TEST_ADDRESSES})
-    string (REGEX MATCH "^[a-zA-Z0-9]+" service_name "${service_addr}")
+
+if (BUILD_TESTS)
+    # FIXME: build one executable and control sevice address via cmd arguments
+    foreach (service_addr ${SERVICE_TEST_ADDRESSES})
+        string (REGEX MATCH "^[a-zA-Z0-9]+" service_name "${service_addr}")
+        create_test(
+            NAME ${service_name}
+            FILES unit_tests.cpp
+            COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\"")
+    endforeach()
+endif()
+
+if (BUILD_ENV_TESTS)
     create_test(
-        NAME ${service_name}
-        FILES unit_tests.cpp
-        COMPILE_DEFINITIONS "SERVICE_ADDRESS=\"${service_addr}\"")
-endforeach()
+            NAME "conn"
+            FILES connection_tests.cpp)
+endif()
