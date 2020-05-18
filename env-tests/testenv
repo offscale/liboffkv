@@ -243,7 +243,7 @@ run_tests() {
 
         echo "Running against $service"
         echo "Addresses:" $addresses
-        docker run --rm -it --network="$NETWORK" --name="$name" "$image" $run_cmd $addresses
+        docker run --rm -it --network="$NETWORK" --cap-add NET_ADMIN --name="$name" "$image" $run_cmd $addresses
     done
 }
 
@@ -389,12 +389,13 @@ subcmd_clear() {
     destroy_containers
     local images=`docker image ls --format="{{.Repository}}" "${TESTING_IMAGE_PREFIX}*"`
     local num_images=`echo -n "$images" | wc -l`
-    if (( $num_images != 1 )); then
+    if (( $num_images > 0 )); then
         echo $images | xargs docker image rm
     fi
 
     if [[ -n "$all" ]]; then
         docker image rm "$CONSUL_IMAGE" "$ETCD_IMAGE" "$ZK_IMAGE" "$TEST_BASE_IMAGE"
+        echo '`docker system prune` may help to reclaim more space'
     fi
 }
 
